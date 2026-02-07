@@ -1,0 +1,12 @@
+using MediaBrowser.Model.Plugins;
+
+namespace JellyParty.Plugin.Configuration
+{
+    public class PluginConfiguration : BasePluginConfiguration
+    {
+        public bool EnableChat { get; set; } = true;
+        public bool PersistChatHistory { get; set; } = false;
+        public int MaxChatHistory { get; set; } = 100;
+        public string WelcomeMessage { get; set; } = "Welcome to the JellyParty Watch Party!";
+    }
+}
