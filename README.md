@@ -3,3 +3,6 @@
 Ultimate social viewing experience for Jellyfin.
 
 A high-performance watch party plugin.
+
+## Features
+- Persistent room management
