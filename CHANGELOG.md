@@ -6,3 +6,6 @@
 ## [2026-02-15] - Implemented core RoomManager and configuration persistence
 - Documentation updated.
 
+## [2026-02-22] - Added REST API endpoints for room discovery and creation
+- Documentation updated.
+
