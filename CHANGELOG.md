@@ -12,3 +12,6 @@
 ## [2026-03-01] - Implemented basic Web UI with lobby and room views
 - Documentation updated.
 
+## [2026-03-09] - Developed real-time synchronization logic and player integration
+- Documentation updated.
+
