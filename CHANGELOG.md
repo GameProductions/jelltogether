@@ -15,3 +15,6 @@
 ## [2026-03-09] - Developed real-time synchronization logic and player integration
 - Documentation updated.
 
+## [2026-03-17] - Enhanced security with RBAC and invitation permission system
+- Documentation updated.
+
