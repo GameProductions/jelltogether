@@ -18,3 +18,6 @@
 ## [2026-03-17] - Enhanced security with RBAC and invitation permission system
 - Documentation updated.
 
+## [2026-03-25] - Implemented social features: real-time chat and emoji reactions
+- Documentation updated.
+
