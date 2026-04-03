@@ -21,3 +21,6 @@
 ## [2026-03-25] - Implemented social features: real-time chat and emoji reactions
 - Documentation updated.
 
+## [2026-04-03] - Added Immersive VR Mode with WebXR support and 'Starry Void' theme
+- Documentation updated.
+
