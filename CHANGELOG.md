@@ -24,3 +24,6 @@
 ## [2026-04-03] - Added Immersive VR Mode with WebXR support and 'Starry Void' theme
 - Documentation updated.
 
+## [2026-04-12] - Developed Theater Themes (Cyberpunk, Horror) and ambient sync
+- Documentation updated.
+
