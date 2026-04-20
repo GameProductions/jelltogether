@@ -8,3 +8,4 @@ A high-performance watch party plugin.
 - Persistent room management
 - Social chat and reactions
 - VR Mode
+- Polls and Theory Boards

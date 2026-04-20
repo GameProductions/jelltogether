@@ -27,3 +27,6 @@
 ## [2026-04-12] - Developed Theater Themes (Cyberpunk, Horror) and ambient sync
 - Documentation updated.
 
+## [2026-04-20] - Implemented Advanced Engagement: Live Polls and Theory Boards
+- Documentation updated.
+
