@@ -30,3 +30,6 @@
 ## [2026-04-20] - Implemented Advanced Engagement: Live Polls and Theory Boards
 - Documentation updated.
 
+## [2026-04-29] - Added Collaborative Queueing and End-of-Party Recap Engine
+- Documentation updated.
+
