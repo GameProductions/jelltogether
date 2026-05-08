@@ -33,3 +33,6 @@
 ## [2026-04-29] - Added Collaborative Queueing and End-of-Party Recap Engine
 - Documentation updated.
 
+## [2026-05-08] - Phase 12: Discord Stage Orchestrator and Performance Hardening
+- Documentation updated.
+
