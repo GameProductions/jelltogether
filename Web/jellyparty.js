@@ -84,7 +84,7 @@ class JellyPartyApp {
         const text = prompt("Enter your theory / observation:");
         if (!text) return;
         try {
-            await fetch(`/JellyParty/Rooms/${this.currentRoom.id}/Theories`, {
+            const resp = await fetch(`/JellyParty/Rooms/${this.currentRoom.id}/Theories`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(text)

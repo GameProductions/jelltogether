@@ -63,6 +63,7 @@ namespace JellyParty.Plugin.Api
             ));
 
             if (room == null) return NotFound();
+            MaskSensitive(room);
             return Ok(room);
         }
 
@@ -196,6 +197,7 @@ namespace JellyParty.Plugin.Api
                 return StatusCode(304);
             }
 
+            MaskSensitive(room);
             return Ok(room);
         }
 

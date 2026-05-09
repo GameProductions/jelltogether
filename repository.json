@@ -12,8 +12,8 @@
         "changelog": "Initial release with Discord Stage Orchestrator and VR support.",
         "targetAbi": "10.11.8.0",
         "sourceUrl": "https://github.com/GameProductions/jellyparty/releases/download/v1.0.0.0/JellyParty_1.0.0.0.zip",
-        "checksum": "4746A318D52275EFA0DE0AE75E4590B3",
-        "timestamp": "2026-05-09T03:05:34Z"
+        "checksum": "A8CCB28360847B5993CC8B5FE6C41908",
+        "timestamp": "2026-05-09T04:21:25Z"
       }
     ]
   }
