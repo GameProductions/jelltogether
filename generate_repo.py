@@ -6,7 +6,7 @@ import subprocess
 from datetime import datetime
 
 # --- CONFIGURATION ---
-GITHUB_USER = "morenicano"
+GITHUB_USER = "GameProductions"
 REPO_NAME = "jellyparty"
 VERSION = "1.0.0.0"
 TARGET_ABI = "10.11.8.0"
@@ -23,12 +23,12 @@ def run_command(cmd):
     print(f"Running: {cmd}")
     subprocess.run(cmd, shell=True, check=True)
 
-def calculate_sha256(file_path):
-    sha256_hash = hashlib.sha256()
+def calculate_md5(file_path):
+    md5_hash = hashlib.md5()
     with open(file_path, "rb") as f:
         for byte_block in iter(lambda: f.read(4096), b""):
-            sha256_hash.update(byte_block)
-    return sha256_hash.hexdigest()
+            md5_hash.update(byte_block)
+    return md5_hash.hexdigest().upper()
 
 def create_zip(source_dir, output_path):
     print(f"Creating ZIP: {output_path}")
@@ -85,8 +85,8 @@ def main():
         create_zip(PUBLISH_DIR, ZIP_PATH)
         
         # 4. Calculate Checksum
-        checksum = calculate_sha256(ZIP_PATH)
-        print(f"SHA256: {checksum}")
+        checksum = calculate_md5(ZIP_PATH)
+        print(f"MD5: {checksum}")
         
         # 5. Generate repository.json
         generate_repo_json(checksum)
