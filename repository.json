@@ -2,18 +2,19 @@
   {
     "guid": "f9e1e2d3-a4b5-4c6d-8e9f-0a1b2c3d4e5f",
     "name": "JellyParty",
+    "imageUrl": "https://raw.githubusercontent.com/GameProductions/jellyparty/main/logo.png",
     "description": "The ultimate social watch party plugin for Jellyfin.",
     "overview": "Host high-fidelity watch parties with virtual cinema seats, theory boards, and synchronized playback.",
     "owner": "GameProductions",
     "category": "Social",
     "versions": [
       {
-        "version": "1.0.0.0",
+        "version": "1.0.1.0",
         "changelog": "Initial release with Discord Stage Orchestrator and VR support.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jellyparty/releases/download/v1.0.0.0/JellyParty_1.0.0.0.zip",
-        "checksum": "A8CCB28360847B5993CC8B5FE6C41908",
-        "timestamp": "2026-05-09T04:21:25Z"
+        "sourceUrl": "https://github.com/GameProductions/jellyparty/releases/download/v1.0.1.0/JellyParty_1.0.1.0.zip",
+        "checksum": "AE4F57A8CA5C21E337B9E403857F1493",
+        "timestamp": "2026-05-09T04:25:41Z"
       }
     ]
   }
