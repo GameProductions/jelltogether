@@ -16,4 +16,8 @@
     <PackageReference Include="Jellyfin.Model" Version="10.11.8" />
   </ItemGroup>
 
+  <ItemGroup>
+    <EmbeddedResource Include="Web\**\*" />
+  </ItemGroup>
+
 </Project>
