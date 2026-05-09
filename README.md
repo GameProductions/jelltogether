@@ -2,10 +2,13 @@
 
 Ultimate social viewing experience for Jellyfin.
 
-A high-performance watch party plugin.
+A high-performance watch party plugin focusing on synchrony and social interaction.
 
 ## Features
 - Persistent room management
-- Social chat and reactions
-- VR Mode
-- Polls and Theory Boards
+- Thread-safe session handling
+- Social chat and floating reactions
+- Immersive VR Mode (WebXR)
+- Live Polls and Theory Boards
+- Collaborative media queueing
+- Discord Stage integration
