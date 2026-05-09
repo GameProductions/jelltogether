@@ -8,7 +8,7 @@ from datetime import datetime
 # --- CONFIGURATION ---
 GITHUB_USER = "GameProductions"
 REPO_NAME = "jellyparty"
-VERSION = "1.0.0.0"
+VERSION = "1.0.1.0"
 TARGET_ABI = "10.11.8.0"
 GUID = "f9e1e2d3-a4b5-4c6d-8e9f-0a1b2c3d4e5f"
 # ---------------------
@@ -43,11 +43,13 @@ def create_zip(source_dir, output_path):
 def generate_repo_json(checksum):
     print("Generating repository.json...")
     source_url = f"https://github.com/{GITHUB_USER}/{REPO_NAME}/releases/download/v{VERSION}/{ZIP_NAME}"
+    image_url = f"https://raw.githubusercontent.com/{GITHUB_USER}/{REPO_NAME}/main/logo.png"
     
     repo_data = [
         {
             "guid": GUID,
             "name": "JellyParty",
+            "imageUrl": image_url,
             "description": "The ultimate social watch party plugin for Jellyfin.",
             "overview": "Host high-fidelity watch parties with virtual cinema seats, theory boards, and synchronized playback.",
             "owner": GITHUB_USER,
