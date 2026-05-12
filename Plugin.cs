@@ -31,7 +31,31 @@ namespace JellTogether.Plugin
                 new PluginPageInfo
                 {
                     Name = "jelltogether",
-                    EmbeddedResourcePath = GetType().Namespace + ".Web.jelltogether.html"
+                    DisplayName = "JellTogether",
+                    EmbeddedResourcePath = GetType().Namespace + ".Web.jelltogether.html",
+                    EnableInMainMenu = true,
+                    MenuSection = "server",
+                    MenuIcon = "movie"
+                },
+                new PluginPageInfo
+                {
+                    Name = "jelltogether.css",
+                    EmbeddedResourcePath = GetType().Namespace + ".Web.jelltogether.css"
+                },
+                new PluginPageInfo
+                {
+                    Name = "jelltogether.js",
+                    EmbeddedResourcePath = GetType().Namespace + ".Web.jelltogether.js"
+                },
+                new PluginPageInfo
+                {
+                    Name = "strings.js",
+                    EmbeddedResourcePath = GetType().Namespace + ".Web.strings.js"
+                },
+                new PluginPageInfo
+                {
+                    Name = "logo.png",
+                    EmbeddedResourcePath = GetType().Namespace + ".Web.logo.png"
                 }
             };
         }

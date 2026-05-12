@@ -8,7 +8,7 @@ from datetime import datetime
 # --- CONFIGURATION ---
 GITHUB_USER = "GameProductions"
 REPO_NAME = "jelltogether"
-VERSION = "1.1.0.0"
+VERSION = "1.1.1.0"
 TARGET_ABI = "10.11.8.0"
 GUID = "f9e1e2d3-a4b5-4c6d-8e9f-0a1b2c3d4e5f"
 # ---------------------
@@ -43,7 +43,7 @@ def create_zip(source_dir, output_path):
 def generate_repo_json(checksum):
     print("Generating repository.json...")
     source_url = f"https://github.com/{GITHUB_USER}/{REPO_NAME}/releases/download/v{VERSION}/{ZIP_NAME}"
-    image_url = f"https://raw.githubusercontent.com/{GITHUB_USER}/{REPO_NAME}/main/logo.png"
+    image_url = f"https://raw.githubusercontent.com/{GITHUB_USER}/{REPO_NAME}/main/banner.png"
     
     repo_data = [
         {
@@ -57,7 +57,7 @@ def generate_repo_json(checksum):
             "versions": [
                 {
                     "version": f"{VERSION}",
-                    "changelog": "Rename to JellTogether, harden watch party room security, refresh branding, and add Jellyfin-friendly assets.",
+                    "changelog": "Expose the JellTogether page in Jellyfin navigation and fix embedded web asset loading.",
                     "targetAbi": TARGET_ABI,
                     "sourceUrl": source_url,
                     "checksum": checksum,
