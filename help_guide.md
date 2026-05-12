@@ -1,9 +1,9 @@
-# 📖 JellyParty User Guide
+# 📖 JellTogether User Guide
 
-Welcome to JellyParty!
+Welcome to JellTogether!
 
 ## 🏁 Getting Started
-1. Open JellyParty from the menu.
+1. Open JellTogether from the menu.
 2. Click + Create Party.
 
 ## 👑 Host Controls

@@ -18,6 +18,10 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Web\**\*" />
+    <EmbeddedResource Include="logo.png" LogicalName="JellTogether.Plugin.Web.logo.png" />
+    <EmbeddedResource Include="banner.png" LogicalName="JellTogether.Plugin.Web.banner.png" />
+    <Content Include="logo.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="banner.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

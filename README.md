@@ -1,6 +1,8 @@
-# JellyParty 🍿
+![JellTogether banner](banner.png)
 
-Ultimate social viewing experience for Jellyfin.
+# JellTogether
+
+Interactive Jellyfin watch party plugin for synced viewing.
 
 A high-performance watch party plugin focusing on synchrony and social interaction.
 

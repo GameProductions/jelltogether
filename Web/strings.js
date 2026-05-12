@@ -1,4 +1,4 @@
-const JELLYPARTY_I18N = {
+const JELL_TOGETHER_I18N = {
     en: {
         lobby_title: "Active Watch Parties",
         create_btn: "Create New Party",

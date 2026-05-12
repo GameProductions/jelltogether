@@ -4,6 +4,7 @@
     --primary: #00a4dc;
     --primary-glow: rgba(0, 164, 220, 0.5);
     --secondary: #9046ff;
+    --accent: #00a4dc;
     --bg-dark: #0a0a0c;
     --glass: rgba(255, 255, 255, 0.05);
     --glass-border: rgba(255, 255, 255, 0.1);
@@ -72,6 +73,14 @@ header {
     display: flex;
     align-items: center;
     gap: 10px;
+}
+
+.logo img {
+    width: 34px;
+    height: 34px;
+    border-radius: 8px;
+    object-fit: cover;
+    -webkit-text-fill-color: initial;
 }
 
 /* Room Cards */
@@ -354,6 +363,17 @@ header {
     transition: all 0.2s;
 }
 
+#participant-controls .action-btn,
+#invite-code-container .action-btn,
+#host-discord-stage .action-btn,
+#btn-vr-mode,
+.theory-board .action-btn {
+    width: auto;
+    min-width: 28px;
+    padding: 0 10px;
+    white-space: nowrap;
+}
+
 .action-btn:hover {
     color: white;
     border-color: var(--primary);
@@ -390,6 +410,33 @@ body.theme-horror {
     --bg-dark: #050000;
     --glass: rgba(153, 0, 0, 0.1);
     --accent-gradient: linear-gradient(135deg, #660000 0%, #990000 100%);
+}
+
+body.theme-cinema {
+    --primary: #d4af37;
+    --secondary: #7a1f1f;
+    --accent: #d4af37;
+    --bg-dark: #100807;
+    --glass: rgba(212, 175, 55, 0.08);
+    --accent-gradient: linear-gradient(135deg, #d4af37 0%, #7a1f1f 100%);
+}
+
+body.theme-anime {
+    --primary: #ff6fb1;
+    --secondary: #3dd6d0;
+    --accent: #ff6fb1;
+    --bg-dark: #111018;
+    --glass: rgba(255, 111, 177, 0.08);
+    --accent-gradient: linear-gradient(135deg, #ff6fb1 0%, #3dd6d0 100%);
+}
+
+body.theme-scifi {
+    --primary: #5eead4;
+    --secondary: #7c3aed;
+    --accent: #5eead4;
+    --bg-dark: #05070d;
+    --glass: rgba(94, 234, 212, 0.07);
+    --accent-gradient: linear-gradient(135deg, #5eead4 0%, #7c3aed 100%);
 }
 
 /* Polls */
@@ -494,6 +541,9 @@ body.theme-horror {
     display: flex;
     justify-content: space-between;
     transition: all 0.2s;
+    width: 100%;
+    color: var(--text-main);
+    font-family: inherit;
 }
 
 .poll-option:hover {

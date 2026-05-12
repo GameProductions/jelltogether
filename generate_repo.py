@@ -7,15 +7,15 @@ from datetime import datetime
 
 # --- CONFIGURATION ---
 GITHUB_USER = "GameProductions"
-REPO_NAME = "jellyparty"
-VERSION = "1.0.1.0"
+REPO_NAME = "jelltogether"
+VERSION = "1.1.0.0"
 TARGET_ABI = "10.11.8.0"
 GUID = "f9e1e2d3-a4b5-4c6d-8e9f-0a1b2c3d4e5f"
 # ---------------------
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLISH_DIR = os.path.join(BASE_DIR, "bin", "Release", "net9.0", "publish")
-ZIP_NAME = f"JellyParty_{VERSION}.zip"
+ZIP_NAME = f"jelltogether_{VERSION}.zip"
 ZIP_PATH = os.path.join(BASE_DIR, ZIP_NAME)
 REPO_JSON_PATH = os.path.join(BASE_DIR, "repository.json")
 
@@ -35,7 +35,7 @@ def create_zip(source_dir, output_path):
     with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
         for root, dirs, files in os.walk(source_dir):
             for file in files:
-                if file.endswith(".dll") or file == "manifest.json":
+                if file.endswith(".dll") or file in {"manifest.json", "logo.png", "banner.png"}:
                     file_path = os.path.join(root, file)
                     arcname = os.path.relpath(file_path, source_dir)
                     zipf.write(file_path, arcname)
@@ -48,7 +48,7 @@ def generate_repo_json(checksum):
     repo_data = [
         {
             "guid": GUID,
-            "name": "JellyParty",
+            "name": "JellTogether",
             "imageUrl": image_url,
             "description": "The ultimate social watch party plugin for Jellyfin.",
             "overview": "Host high-fidelity watch parties with virtual cinema seats, theory boards, and synchronized playback.",
@@ -57,7 +57,7 @@ def generate_repo_json(checksum):
             "versions": [
                 {
                     "version": f"{VERSION}",
-                    "changelog": "Initial release with Discord Stage Orchestrator and VR support.",
+                    "changelog": "Rename to JellTogether, harden watch party room security, refresh branding, and add Jellyfin-friendly assets.",
                     "targetAbi": TARGET_ABI,
                     "sourceUrl": source_url,
                     "checksum": checksum,

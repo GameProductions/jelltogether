@@ -2,12 +2,13 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 
-namespace JellyParty.Plugin.Services
+namespace JellTogether.Plugin.Services
 {
-    public class JellyPartyRoom
+    public class JellTogetherRoom
     {
         public string Id { get; set; } = Guid.NewGuid().ToString("N");
         public string RoomCode { get; set; } = string.Empty;
@@ -18,7 +19,7 @@ namespace JellyParty.Plugin.Services
         public List<string> CoHostIds { get; set; } = new();
         public List<string> Participants { get; set; } = new();
         public Dictionary<string, int> CinemaSeats { get; set; } = new(); // UserId -> SeatIndex
-        public List<JellyPartyInvite> Invitations { get; set; } = new();
+        public List<JellTogetherInvite> Invitations { get; set; } = new();
         public List<QueueItem> Queue { get; set; } = new();
         public List<TheoryNote> Theories { get; set; } = new();
         public List<TriviaQuestion> Trivia { get; set; } = new();
@@ -73,7 +74,7 @@ namespace JellyParty.Plugin.Services
         public string? TopChatter { get; set; }
     }
 
-    public class JellyPartyInvite
+    public class JellTogetherInvite
     {
         public string Code { get; set; } = string.Empty;
         public ParticipantPermissions DefaultPermissions { get; set; } = new();
@@ -109,11 +110,12 @@ namespace JellyParty.Plugin.Services
 
     public class RoomManager
     {
-        private readonly ConcurrentDictionary<string, JellyPartyRoom> _rooms = new();
+        private readonly ConcurrentDictionary<string, JellTogetherRoom> _rooms = new();
         private readonly string _storagePath;
         private readonly object _fileLock = new();
+        private readonly object _roomLock = new();
         private static readonly HttpClient _httpClient = new();
-        private DateTime _lastSave = DateTime.MinValue;
+        private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
 
         public RoomManager(string configPath)
         {
@@ -121,20 +123,23 @@ namespace JellyParty.Plugin.Services
             LoadRooms();
         }
 
-        private void SaveRooms(bool force = false)
+        private void SaveRooms()
         {
-            // Throttle saves to once every 5 seconds unless forced
-            if (!force && (DateTime.UtcNow - _lastSave).TotalSeconds < 5) return;
-
             lock (_fileLock)
             {
                 try
                 {
-                    var json = JsonSerializer.Serialize(_rooms.Values, new JsonSerializerOptions { WriteIndented = true });
+                    var json = JsonSerializer.Serialize(_rooms.Values, SerializerOptions);
                     File.WriteAllText(_storagePath, json);
-                    _lastSave = DateTime.UtcNow;
                 }
-                catch { }
+                catch (IOException ex)
+                {
+                    throw new InvalidOperationException("Unable to persist JellTogether rooms.", ex);
+                }
+                catch (UnauthorizedAccessException ex)
+                {
+                    throw new InvalidOperationException("Unable to persist JellTogether rooms.", ex);
+                }
             }
         }
 
@@ -147,279 +152,378 @@ namespace JellyParty.Plugin.Services
                     if (File.Exists(_storagePath))
                     {
                         var json = File.ReadAllText(_storagePath);
-                        var rooms = JsonSerializer.Deserialize<List<JellyPartyRoom>>(json);
+                        var rooms = JsonSerializer.Deserialize<List<JellTogetherRoom>>(json);
                         if (rooms != null)
                         {
                             foreach (var room in rooms) _rooms[room.Id] = room;
                         }
                     }
                 }
-                catch { }
+                catch
+                {
+                    _rooms.Clear();
+                }
             }
         }
 
-        public JellyPartyRoom CreateRoom(string name, string ownerId)
+        public JellTogetherRoom CreateRoom(string name, string ownerId)
         {
-            var room = new JellyPartyRoom 
-            { 
-                Name = name, 
-                OwnerId = ownerId,
-                RoomCode = GenerateRoomCode()
-            };
-            room.Participants.Add(ownerId);
-            room.Permissions[ownerId] = new ParticipantPermissions();
-            _rooms[room.Id] = room;
-            SaveRooms();
-            return room;
+            lock (_roomLock)
+            {
+                var room = new JellTogetherRoom
+                {
+                    Name = TrimToLimit(name, 120),
+                    OwnerId = ownerId,
+                    RoomCode = GenerateUniqueCode()
+                };
+                room.Participants.Add(ownerId);
+                room.CinemaSeats[ownerId] = 0;
+                room.Permissions[ownerId] = new ParticipantPermissions();
+                _rooms[room.Id] = room;
+                SaveRooms();
+                return CloneRoom(room);
+            }
         }
 
-        private string GenerateRoomCode()
+        private static string GenerateRoomCode()
         {
             const string chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-            var random = new Random();
-            return new string(Enumerable.Repeat(chars, 6)
-                .Select(s => s[random.Next(s.Length)]).ToArray());
+            return new string(Enumerable.Range(0, 6)
+                .Select(_ => chars[RandomNumberGenerator.GetInt32(chars.Length)]).ToArray());
+        }
+
+        private string GenerateUniqueCode()
+        {
+            string code;
+            do
+            {
+                code = GenerateRoomCode();
+            } while (_rooms.Values.Any(r => r.RoomCode.Equals(code, StringComparison.OrdinalIgnoreCase) ||
+                r.Invitations.Any(i => i.Code.Equals(code, StringComparison.OrdinalIgnoreCase))));
+
+            return code;
         }
 
         public void TogglePrivacy(string roomId)
         {
-            if (_rooms.TryGetValue(roomId, out var room))
+            lock (_roomLock)
             {
-                room.IsPrivate = !room.IsPrivate;
-                room.LastUpdated = DateTime.UtcNow;
-                SaveRooms();
-            }
-        }
-
-        public JellyPartyRoom? GetRoom(string roomId)
-        {
-            return _rooms.TryGetValue(roomId, out var room) ? room : null;
-        }
-
-        public JellyPartyInvite CreateInvite(string roomId, string creatorId, ParticipantPermissions perms, int hoursValid = 24, int maxUses = 0)
-        {
-            if (_rooms.TryGetValue(roomId, out var room))
-            {
-                var invite = new JellyPartyInvite
+                if (_rooms.TryGetValue(roomId, out var room))
                 {
-                    Code = GenerateRoomCode(),
-                    CreatedBy = creatorId,
-                    DefaultPermissions = perms,
-                    ExpiresAt = hoursValid > 0 ? DateTime.UtcNow.AddHours(hoursValid) : null,
-                    MaxUses = maxUses
-                };
-                room.Invitations.Add(invite);
-                SaveRooms();
-                return invite;
+                    room.IsPrivate = !room.IsPrivate;
+                    Touch(room);
+                }
             }
+        }
+
+        public JellTogetherRoom? GetRoom(string roomId)
+        {
+            lock (_roomLock)
+            {
+                return _rooms.TryGetValue(roomId, out var room) ? CloneRoom(room) : null;
+            }
+        }
+
+        public JellTogetherRoom? GetRoomByCode(string code)
+        {
+            lock (_roomLock)
+            {
+                var room = _rooms.Values.FirstOrDefault(r =>
+                    r.RoomCode.Equals(code, StringComparison.OrdinalIgnoreCase) ||
+                    r.Invitations.Any(i => IsInviteUsable(i, code)));
+
+                return room == null ? null : CloneRoom(room);
+            }
+        }
+
+        public JellTogetherInvite CreateInvite(string roomId, string creatorId, ParticipantPermissions perms, int hoursValid = 24, int maxUses = 0)
+        {
+            lock (_roomLock)
+            {
+                if (_rooms.TryGetValue(roomId, out var room))
+                {
+                    var invite = new JellTogetherInvite
+                    {
+                        Code = GenerateUniqueCode(),
+                        CreatedBy = creatorId,
+                        DefaultPermissions = perms,
+                        ExpiresAt = hoursValid > 0 ? DateTime.UtcNow.AddHours(Math.Min(hoursValid, 24 * 30)) : null,
+                        MaxUses = Math.Max(0, maxUses)
+                    };
+                    room.Invitations.Add(invite);
+                    Touch(room);
+                    return invite;
+                }
+            }
+
             throw new Exception("Room not found");
         }
 
         public void ToggleParticipantInvites(string roomId)
         {
-            if (_rooms.TryGetValue(roomId, out var room))
+            lock (_roomLock)
             {
-                room.AllowParticipantInvites = !room.AllowParticipantInvites;
-                room.LastUpdated = DateTime.UtcNow;
-                SaveRooms();
+                if (_rooms.TryGetValue(roomId, out var room))
+                {
+                    room.AllowParticipantInvites = !room.AllowParticipantInvites;
+                    Touch(room);
+                }
             }
         }
 
-        public void JoinRoom(string roomId, string userId, string? inviteCode = null)
+        public bool JoinRoom(string roomId, string userId, string? inviteCode = null)
         {
-            if (_rooms.TryGetValue(roomId, out var room))
+            lock (_roomLock)
             {
+                if (!_rooms.TryGetValue(roomId, out var room)) return false;
+
                 if (!room.Participants.Contains(userId))
                 {
+                    var invite = string.IsNullOrWhiteSpace(inviteCode)
+                        ? null
+                        : room.Invitations.FirstOrDefault(i => IsInviteUsable(i, inviteCode));
+
+                    var hasRoomCode = !string.IsNullOrWhiteSpace(inviteCode) &&
+                        room.RoomCode.Equals(inviteCode, StringComparison.OrdinalIgnoreCase);
+
+                    if (room.IsPrivate && !hasRoomCode && invite == null) return false;
+
                     room.Participants.Add(userId);
-                    
-                    // Apply specific permissions from invite if provided
+                    room.CinemaSeats[userId] = NextSeat(room);
+
                     var perms = new ParticipantPermissions();
-                    if (!string.IsNullOrEmpty(inviteCode))
+                    if (invite != null)
                     {
-                        var invite = room.Invitations.FirstOrDefault(i => i.Code == inviteCode);
-                        if (invite != null)
-                        {
-                            perms.CanChat = invite.DefaultPermissions.CanChat;
-                            perms.CanControlPlayback = invite.DefaultPermissions.CanControlPlayback;
-                            invite.CurrentUses++;
-                        }
+                        perms.CanChat = invite.DefaultPermissions.CanChat;
+                        perms.CanControlPlayback = invite.DefaultPermissions.CanControlPlayback;
+                        invite.CurrentUses++;
                     }
 
                     room.Permissions[userId] = perms;
-                    room.LastUpdated = DateTime.UtcNow;
-                    SaveRooms();
+                    Touch(room);
                 }
+
+                return true;
             }
         }
 
         public void LeaveRoom(string roomId, string userId)
         {
-            if (_rooms.TryGetValue(roomId, out var room))
+            lock (_roomLock)
             {
-                if (room.Participants.Remove(userId))
+                if (_rooms.TryGetValue(roomId, out var room) && room.Participants.Remove(userId))
                 {
                     room.Permissions.Remove(userId);
                     room.CoHostIds.Remove(userId);
-                    room.LastUpdated = DateTime.UtcNow;
-                    SaveRooms();
+                    room.CinemaSeats.Remove(userId);
+                    room.BufferingUserIds.Remove(userId);
+                    Touch(room);
                 }
             }
         }
 
         public void SetUserPermissions(string roomId, string userId, bool canChat, bool canControlPlayback)
         {
-            if (_rooms.TryGetValue(roomId, out var room))
+            lock (_roomLock)
             {
-                if (!room.Permissions.ContainsKey(userId))
-                    room.Permissions[userId] = new ParticipantPermissions();
+                if (_rooms.TryGetValue(roomId, out var room))
+                {
+                    if (!room.Participants.Contains(userId)) return;
+                    if (!room.Permissions.ContainsKey(userId))
+                        room.Permissions[userId] = new ParticipantPermissions();
 
-                room.Permissions[userId].CanChat = canChat;
-                room.Permissions[userId].CanControlPlayback = canControlPlayback;
-                room.LastUpdated = DateTime.UtcNow;
-                SaveRooms();
+                    room.Permissions[userId].CanChat = canChat;
+                    room.Permissions[userId].CanControlPlayback = canControlPlayback;
+                    Touch(room);
+                }
             }
         }
 
         public void ToggleCoHost(string roomId, string userId)
         {
-            if (_rooms.TryGetValue(roomId, out var room))
+            lock (_roomLock)
             {
-                if (room.CoHostIds.Contains(userId))
-                    room.CoHostIds.Remove(userId);
-                else
-                    room.CoHostIds.Add(userId);
-                
-                room.LastUpdated = DateTime.UtcNow;
-                SaveRooms();
+                if (_rooms.TryGetValue(roomId, out var room) && room.Participants.Contains(userId))
+                {
+                    if (room.CoHostIds.Contains(userId))
+                        room.CoHostIds.Remove(userId);
+                    else if (room.OwnerId != userId)
+                        room.CoHostIds.Add(userId);
+
+                    Touch(room);
+                }
             }
         }
 
         public void TransferOwnership(string roomId, string newOwnerId)
         {
-            if (_rooms.TryGetValue(roomId, out var room))
+            lock (_roomLock)
             {
-                room.OwnerId = newOwnerId;
-                room.CoHostIds.Remove(newOwnerId);
-                room.LastUpdated = DateTime.UtcNow;
-                SaveRooms();
+                if (_rooms.TryGetValue(roomId, out var room) && room.Participants.Contains(newOwnerId))
+                {
+                    room.OwnerId = newOwnerId;
+                    room.CoHostIds.Remove(newOwnerId);
+                    if (!room.Permissions.ContainsKey(newOwnerId))
+                        room.Permissions[newOwnerId] = new ParticipantPermissions();
+                    Touch(room);
+                }
             }
         }
 
-        public void AddMessage(string roomId, ChatMessage message)
+        public bool AddMessage(string roomId, ChatMessage message)
         {
-            if (_rooms.TryGetValue(roomId, out var room))
+            lock (_roomLock)
             {
+                if (!_rooms.TryGetValue(roomId, out var room) || !room.Participants.Contains(message.UserId)) return false;
+
                 if (room.Permissions.TryGetValue(message.UserId, out var perm) && !perm.CanChat && room.OwnerId != message.UserId && !room.CoHostIds.Contains(message.UserId))
                 {
-                    return;
+                    return false;
                 }
 
+                message.Text = TrimToLimit(message.Text, 1000);
                 room.Messages.Add(message);
                 room.LastMessagePreview = $"{message.UserName}: {message.Text}";
                 if (room.Messages.Count > 100) room.Messages.RemoveAt(0);
-                room.LastUpdated = DateTime.UtcNow;
-                SaveRooms();
+                room.Stats.TotalMessages++;
+                room.Stats.TopChatter = message.UserId;
+                Touch(room);
+                return true;
             }
         }
 
         public void SetTheme(string roomId, string theme)
         {
-            if (_rooms.TryGetValue(roomId, out var room))
+            lock (_roomLock)
             {
-                room.CurrentTheme = theme;
-                room.LastUpdated = DateTime.UtcNow;
-                SaveRooms();
+                if (_rooms.TryGetValue(roomId, out var room))
+                {
+                    var allowed = new[] { "default", "cinema", "horror", "anime", "scifi", "cyberpunk" };
+                    room.CurrentTheme = allowed.Contains(theme) ? theme : "default";
+                    Touch(room);
+                }
             }
         }
 
         public void SetBuffering(string roomId, string userId, bool isBuffering)
         {
-            if (_rooms.TryGetValue(roomId, out var room))
+            lock (_roomLock)
             {
-                if (isBuffering && !room.BufferingUserIds.Contains(userId))
-                    room.BufferingUserIds.Add(userId);
-                else if (!isBuffering)
-                    room.BufferingUserIds.Remove(userId);
-                
-                room.LastUpdated = DateTime.UtcNow;
-                SaveRooms();
+                if (_rooms.TryGetValue(roomId, out var room) && room.Participants.Contains(userId))
+                {
+                    if (isBuffering && !room.BufferingUserIds.Contains(userId))
+                        room.BufferingUserIds.Add(userId);
+                    else if (!isBuffering)
+                        room.BufferingUserIds.Remove(userId);
+
+                    Touch(room);
+                }
             }
         }
 
         public void CreatePoll(string roomId, string question, List<string> options)
         {
-            if (_rooms.TryGetValue(roomId, out var room))
+            lock (_roomLock)
             {
-                var poll = new Poll { Question = question, Options = options };
-                foreach (var opt in options) poll.Votes[opt] = new List<string>();
-                room.ActivePolls.Add(poll);
-                room.LastUpdated = DateTime.UtcNow;
-                SaveRooms();
+                if (_rooms.TryGetValue(roomId, out var room))
+                {
+                    var cleanedOptions = options
+                        .Select(o => TrimToLimit(o, 120))
+                        .Where(o => !string.IsNullOrWhiteSpace(o))
+                        .Distinct()
+                        .Take(6)
+                        .ToList();
+                    if (string.IsNullOrWhiteSpace(question) || cleanedOptions.Count < 2) return;
+
+                    var poll = new Poll { Question = TrimToLimit(question, 200), Options = cleanedOptions };
+                    foreach (var opt in cleanedOptions) poll.Votes[opt] = new List<string>();
+                    room.ActivePolls.Add(poll);
+                    Touch(room);
+                }
             }
         }
 
         public void Vote(string roomId, string pollId, string userId, string option)
         {
-            if (_rooms.TryGetValue(roomId, out var room))
+            lock (_roomLock)
             {
-                var poll = room.ActivePolls.FirstOrDefault(p => p.Id == pollId);
-                if (poll != null && !poll.IsClosed)
+                if (_rooms.TryGetValue(roomId, out var room) && room.Participants.Contains(userId))
                 {
-                    foreach (var votes in poll.Votes.Values) votes.Remove(userId);
-                    if (poll.Votes.ContainsKey(option)) poll.Votes[option].Add(userId);
-                    room.LastUpdated = DateTime.UtcNow;
-                    SaveRooms();
+                    var poll = room.ActivePolls.FirstOrDefault(p => p.Id == pollId);
+                    if (poll != null && !poll.IsClosed)
+                    {
+                        foreach (var votes in poll.Votes.Values) votes.Remove(userId);
+                        if (poll.Votes.ContainsKey(option)) poll.Votes[option].Add(userId);
+                        Touch(room);
+                    }
                 }
             }
         }
 
-        public void AddReaction(string roomId, string emoji)
+        public void AddReaction(string roomId, string emoji, string userId)
         {
-            if (_rooms.TryGetValue(roomId, out var room))
+            lock (_roomLock)
             {
-                room.RecentReactions.Add(emoji);
-                if (room.RecentReactions.Count > 10) room.RecentReactions.RemoveAt(0);
-                room.LastUpdated = DateTime.UtcNow;
-                SaveRooms();
+                if (_rooms.TryGetValue(roomId, out var room) && room.Participants.Contains(userId))
+                {
+                    room.RecentReactions.Add(TrimToLimit(emoji, 16));
+                    if (room.RecentReactions.Count > 10) room.RecentReactions.RemoveAt(0);
+                    room.Stats.TotalReactions++;
+                    room.Stats.TopReactor = userId;
+                    Touch(room);
+                }
             }
         }
 
         public void ToggleHostControl(string roomId)
         {
-            if (_rooms.TryGetValue(roomId, out var room))
+            lock (_roomLock)
             {
-                room.IsHostOnlyControl = !room.IsHostOnlyControl;
-                room.LastUpdated = DateTime.UtcNow;
-                SaveRooms();
+                if (_rooms.TryGetValue(roomId, out var room))
+                {
+                    room.IsHostOnlyControl = !room.IsHostOnlyControl;
+                    Touch(room);
+                }
             }
         }
 
-        public void SetWebhook(string roomId, string url)
+        public bool SetWebhook(string roomId, string url)
         {
-            if (_rooms.TryGetValue(roomId, out var room))
+            if (!IsDiscordWebhook(url)) return false;
+
+            lock (_roomLock)
             {
+                if (!_rooms.TryGetValue(roomId, out var room)) return false;
                 room.DiscordWebhookUrl = url;
-                room.LastUpdated = DateTime.UtcNow;
-                SaveRooms();
+                Touch(room);
                 _ = SendDiscordMessage(url, $"🔗 **Discord Webhook Connected!**\nRoom: `{room.Name}`\nStatus: `Active`\n\nNotifications for this party will be sent here.");
+                return true;
             }
         }
 
         public void SetDiscordStage(string roomId, string botToken, string stageId)
         {
-            if (_rooms.TryGetValue(roomId, out var room))
+            lock (_roomLock)
             {
-                room.DiscordBotToken = botToken;
-                room.DiscordStageId = stageId;
-                SaveRooms(true);
+                if (_rooms.TryGetValue(roomId, out var room))
+                {
+                    room.DiscordBotToken = TrimToLimit(botToken, 256);
+                    room.DiscordStageId = TrimToLimit(stageId, 64);
+                    Touch(room);
+                }
             }
         }
 
         public async Task UpdateDiscordStage(string roomId, string title)
         {
-            if (_rooms.TryGetValue(roomId, out var room) && 
-                !string.IsNullOrEmpty(room.DiscordBotToken) && 
+            JellTogetherRoom? room;
+            lock (_roomLock)
+            {
+                room = _rooms.TryGetValue(roomId, out var existing) ? CloneRoom(existing) : null;
+            }
+
+            if (room != null &&
+                !string.IsNullOrEmpty(room.DiscordBotToken) &&
                 !string.IsNullOrEmpty(room.DiscordStageId))
             {
                 try
@@ -427,7 +531,7 @@ namespace JellyParty.Plugin.Services
                     var url = $"https://discord.com/api/v10/channels/{room.DiscordStageId}";
                     var payload = new { topic = $"🍿 Watching: {title}" };
                     var json = JsonSerializer.Serialize(payload);
-                    
+
                     var request = new HttpRequestMessage(new HttpMethod("PATCH"), url);
                     request.Headers.Add("Authorization", $"Bot {room.DiscordBotToken}");
                     request.Content = new StringContent(json, Encoding.UTF8, "application/json");
@@ -449,6 +553,91 @@ namespace JellyParty.Plugin.Services
             catch { }
         }
 
-        public IEnumerable<JellyPartyRoom> GetAllRooms() => _rooms.Values;
+        public void AddToQueue(string roomId, string title, string userId)
+        {
+            lock (_roomLock)
+            {
+                if (_rooms.TryGetValue(roomId, out var room) && room.Participants.Contains(userId))
+                {
+                    room.Queue.Add(new QueueItem { Title = TrimToLimit(title, 200), AddedBy = userId });
+                    Touch(room);
+                }
+            }
+        }
+
+        public void AddTheory(string roomId, string text, string userId)
+        {
+            lock (_roomLock)
+            {
+                if (_rooms.TryGetValue(roomId, out var room) && room.Participants.Contains(userId))
+                {
+                    room.Theories.Add(new TheoryNote { Text = TrimToLimit(text, 1000), Author = userId });
+                    Touch(room);
+                }
+            }
+        }
+
+        public void AddTrivia(string roomId, TriviaQuestion question)
+        {
+            lock (_roomLock)
+            {
+                if (_rooms.TryGetValue(roomId, out var room))
+                {
+                    question.Question = TrimToLimit(question.Question, 200);
+                    question.Options = question.Options.Select(o => TrimToLimit(o, 120)).Take(6).ToList();
+                    room.Trivia.Add(question);
+                    Touch(room);
+                }
+            }
+        }
+
+        public IEnumerable<JellTogetherRoom> GetAllRooms()
+        {
+            lock (_roomLock)
+            {
+                return _rooms.Values.Select(CloneRoom).ToList();
+            }
+        }
+
+        private void Touch(JellTogetherRoom room)
+        {
+            room.LastUpdated = DateTime.UtcNow;
+            SaveRooms();
+        }
+
+        private static bool IsInviteUsable(JellTogetherInvite invite, string code)
+        {
+            return invite.Code.Equals(code, StringComparison.OrdinalIgnoreCase) &&
+                (invite.ExpiresAt == null || invite.ExpiresAt > DateTime.UtcNow) &&
+                (invite.MaxUses == 0 || invite.CurrentUses < invite.MaxUses);
+        }
+
+        private static int NextSeat(JellTogetherRoom room)
+        {
+            var seat = 0;
+            while (room.CinemaSeats.Values.Contains(seat)) seat++;
+            return seat;
+        }
+
+        private static bool IsDiscordWebhook(string url)
+        {
+            return Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+                uri.Scheme == Uri.UriSchemeHttps &&
+                (uri.Host.Equals("discord.com", StringComparison.OrdinalIgnoreCase) ||
+                 uri.Host.Equals("discordapp.com", StringComparison.OrdinalIgnoreCase)) &&
+                uri.AbsolutePath.StartsWith("/api/webhooks/", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string TrimToLimit(string value, int limit)
+        {
+            value = value?.Trim() ?? string.Empty;
+            return value.Length <= limit ? value : value[..limit];
+        }
+
+        private static JellTogetherRoom CloneRoom(JellTogetherRoom room)
+        {
+            var json = JsonSerializer.Serialize(room, SerializerOptions);
+            return JsonSerializer.Deserialize<JellTogetherRoom>(json) ?? new JellTogetherRoom();
+        }
     }
 }

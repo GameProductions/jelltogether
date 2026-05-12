@@ -1,9 +1,9 @@
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using JellyParty.Plugin.Services;
+using JellTogether.Plugin.Services;
 
-namespace JellyParty.Plugin.Api
+namespace JellTogether.Plugin.Api
 {
     public class CreatePollRequest
     {
@@ -26,45 +26,43 @@ namespace JellyParty.Plugin.Api
     }
 
     [ApiController]
-    [Route("JellyParty")]
+    [Route("jelltogether")]
     [Authorize]
-    public class JellyPartyController : ControllerBase
+    public class JellTogetherController : ControllerBase
     {
         private RoomManager _roomManager => Plugin.Instance?.RoomManager ?? throw new System.Exception("Plugin not initialized");
+        private string CurrentUserId => User.Identity?.Name ?? "Unknown";
+
+        [HttpGet("CurrentUser")]
+        public ActionResult<object> GetCurrentUser()
+        {
+            return Ok(new { id = CurrentUserId, name = CurrentUserId });
+        }
 
         [HttpPost("Rooms")]
-        public ActionResult<JellyPartyRoom> CreateRoom([FromBody] string name)
+        public ActionResult<JellTogetherRoom> CreateRoom([FromBody] string name)
         {
-            var userId = User.Identity?.Name ?? "Unknown";
-            var room = _roomManager.CreateRoom(name, userId);
-            return Ok(room);
+            if (string.IsNullOrWhiteSpace(name)) return BadRequest("Room name is required.");
+            var room = _roomManager.CreateRoom(name, CurrentUserId);
+            return Ok(RoomForUser(room));
         }
 
         [HttpGet("Rooms")]
-        public ActionResult<IEnumerable<JellyPartyRoom>> GetRooms()
+        public ActionResult<IEnumerable<JellTogetherRoom>> GetRooms()
         {
-            var rooms = _roomManager.GetAllRooms().Where(r => !r.IsPrivate).ToList();
-            foreach (var room in rooms) MaskSensitive(room);
+            var rooms = _roomManager.GetAllRooms()
+                .Where(r => !r.IsPrivate)
+                .Select(RoomForUser)
+                .ToList();
             return Ok(rooms);
         }
 
         [HttpGet("Rooms/ByCode/{code}")]
-        public ActionResult<JellyPartyRoom> GetRoomByCode(string code)
+        public ActionResult<JellTogetherRoom> GetRoomByCode(string code)
         {
-            // Check main room code
-            var room = _roomManager.GetAllRooms().FirstOrDefault(r => r.RoomCode.Equals(code, System.StringComparison.OrdinalIgnoreCase));
-            if (room != null) return Ok(room);
-
-            // Check advanced invites
-            room = _roomManager.GetAllRooms().FirstOrDefault(r => r.Invitations.Any(i => 
-                i.Code.Equals(code, System.StringComparison.OrdinalIgnoreCase) && 
-                (i.ExpiresAt == null || i.ExpiresAt > System.DateTime.UtcNow) &&
-                (i.MaxUses == 0 || i.CurrentUses < i.MaxUses)
-            ));
-
+            var room = _roomManager.GetRoomByCode(code);
             if (room == null) return NotFound();
-            MaskSensitive(room);
-            return Ok(room);
+            return Ok(RoomForUser(room));
         }
 
         [HttpPost("Rooms/{roomId}/TogglePrivacy")]
@@ -72,7 +70,7 @@ namespace JellyParty.Plugin.Api
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
-            var callerId = User.Identity?.Name ?? "Unknown";
+            var callerId = CurrentUserId;
             if (room.OwnerId != callerId) return Forbid();
 
             _roomManager.TogglePrivacy(roomId);
@@ -80,27 +78,20 @@ namespace JellyParty.Plugin.Api
         }
 
         [HttpGet("Rooms/{roomId}")]
-        public ActionResult<JellyPartyRoom> GetRoom(string roomId)
+        public ActionResult<JellTogetherRoom> GetRoom(string roomId)
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
-            MaskSensitive(room);
-            return Ok(room);
+            if (!CanView(room)) return Forbid();
+            return Ok(RoomForUser(room));
         }
 
         [HttpPost("Rooms/{roomId}/Join")]
         public ActionResult JoinRoom(string roomId, [FromQuery] string? code = null)
         {
-            var userId = User.Identity?.Name ?? "Unknown";
             var room = _roomManager.GetRoom(roomId);
-            if (room != null && !room.Participants.Contains(userId))
-            {
-                // Assign a seat
-                int seat = 0;
-                while (room.CinemaSeats.Values.Contains(seat)) seat++;
-                room.CinemaSeats[userId] = seat;
-            }
-            _roomManager.JoinRoom(roomId, userId, code);
+            if (room == null) return NotFound();
+            if (!_roomManager.JoinRoom(roomId, CurrentUserId, code)) return Forbid();
             return Ok();
         }
 
@@ -109,9 +100,9 @@ namespace JellyParty.Plugin.Api
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
-            var userId = User.Identity?.Name ?? "Unknown";
-            room.Queue.Add(new QueueItem { Title = title, AddedBy = userId });
-            room.LastUpdated = System.DateTime.UtcNow;
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+            if (string.IsNullOrWhiteSpace(title)) return BadRequest("Queue title is required.");
+            _roomManager.AddToQueue(roomId, title, CurrentUserId);
             return Ok();
         }
 
@@ -120,9 +111,9 @@ namespace JellyParty.Plugin.Api
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
-            var userId = User.Identity?.Name ?? "Unknown";
-            room.Theories.Add(new TheoryNote { Text = text, Author = userId });
-            room.LastUpdated = System.DateTime.UtcNow;
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+            if (string.IsNullOrWhiteSpace(text)) return BadRequest("Theory text is required.");
+            _roomManager.AddTheory(roomId, text, CurrentUserId);
             return Ok();
         }
 
@@ -131,12 +122,9 @@ namespace JellyParty.Plugin.Api
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
-            var userId = User.Identity?.Name ?? "Unknown";
-
-            room.RecentReactions.Add(emoji);
-            room.Stats.TotalReactions++;
-            room.Stats.TopReactor = userId; // Simplified
-            room.LastUpdated = System.DateTime.UtcNow;
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+            if (string.IsNullOrWhiteSpace(emoji)) return BadRequest("Reaction is required.");
+            _roomManager.AddReaction(roomId, emoji, CurrentUserId);
             return Ok();
         }
 
@@ -145,24 +133,23 @@ namespace JellyParty.Plugin.Api
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
-            room.Trivia.Add(question);
-            room.LastUpdated = System.DateTime.UtcNow;
+            if (!CanManage(room)) return Forbid();
+            _roomManager.AddTrivia(roomId, question);
             return Ok();
         }
 
         [HttpPost("Rooms/{roomId}/Invitations")]
-        public ActionResult<JellyPartyInvite> CreateInvite(string roomId, [FromBody] CreateInviteRequest request)
+        public ActionResult<JellTogetherInvite> CreateInvite(string roomId, [FromBody] CreateInviteRequest request)
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
 
-            var userId = User.Identity?.Name ?? "Unknown";
-            var isAdmin = room.OwnerId == userId || room.CoHostIds.Contains(userId);
+            var isAdmin = CanManage(room);
             
             if (!isAdmin && !room.AllowParticipantInvites) return Forbid();
 
             var perms = new ParticipantPermissions { CanChat = request.CanChat, CanControlPlayback = request.CanControl };
-            var invite = _roomManager.CreateInvite(roomId, userId, perms, request.HoursValid, request.MaxUses);
+            var invite = _roomManager.CreateInvite(roomId, CurrentUserId, perms, request.HoursValid, request.MaxUses);
             return Ok(invite);
         }
 
@@ -171,8 +158,7 @@ namespace JellyParty.Plugin.Api
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
-            var userId = User.Identity?.Name ?? "Unknown";
-            if (room.OwnerId != userId) return Forbid();
+            if (room.OwnerId != CurrentUserId) return Forbid();
 
             _roomManager.ToggleParticipantInvites(roomId);
             return Ok();
@@ -181,24 +167,23 @@ namespace JellyParty.Plugin.Api
         [HttpPost("Rooms/{roomId}/Leave")]
         public ActionResult LeaveRoom(string roomId)
         {
-            var userId = User.Identity?.Name ?? "Unknown";
-            _roomManager.LeaveRoom(roomId, userId);
+            _roomManager.LeaveRoom(roomId, CurrentUserId);
             return Ok();
         }
 
         [HttpGet("Rooms/{roomId}/Updates")]
-        public ActionResult<JellyPartyRoom> GetRoomUpdates(string roomId, [FromQuery] DateTime since)
+        public ActionResult<JellTogetherRoom> GetRoomUpdates(string roomId, [FromQuery] DateTime since)
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
+            if (!CanView(room)) return Forbid();
             
             if (room.LastUpdated <= since)
             {
                 return StatusCode(304);
             }
 
-            MaskSensitive(room);
-            return Ok(room);
+            return Ok(RoomForUser(room));
         }
 
         [HttpPost("Rooms/{roomId}/Participants/{userId}/Permissions")]
@@ -207,7 +192,7 @@ namespace JellyParty.Plugin.Api
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
 
-            var callerId = User.Identity?.Name ?? "Unknown";
+            var callerId = CurrentUserId;
             // Only Owner or Co-Host can change permissions
             if (room.OwnerId != callerId && !room.CoHostIds.Contains(callerId))
             {
@@ -224,7 +209,7 @@ namespace JellyParty.Plugin.Api
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
 
-            var callerId = User.Identity?.Name ?? "Unknown";
+            var callerId = CurrentUserId;
             // Only Owner can promote/demote co-hosts
             if (room.OwnerId != callerId)
             {
@@ -241,7 +226,7 @@ namespace JellyParty.Plugin.Api
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
 
-            var callerId = User.Identity?.Name ?? "Unknown";
+            var callerId = CurrentUserId;
             // Only current Owner can transfer ownership
             if (room.OwnerId != callerId)
             {
@@ -258,8 +243,7 @@ namespace JellyParty.Plugin.Api
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
 
-            var callerId = User.Identity?.Name ?? "Unknown";
-            if (room.OwnerId != callerId && !room.CoHostIds.Contains(callerId)) return Forbid();
+            if (!CanManage(room)) return Forbid();
 
             _roomManager.CreatePoll(roomId, request.Question, request.Options);
             return Ok();
@@ -271,8 +255,8 @@ namespace JellyParty.Plugin.Api
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
 
-            var callerId = User.Identity?.Name ?? "Unknown";
-            _roomManager.Vote(roomId, pollId, callerId, option);
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+            _roomManager.Vote(roomId, pollId, CurrentUserId, option);
             return Ok();
         }
 
@@ -282,10 +266,9 @@ namespace JellyParty.Plugin.Api
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
 
-            var callerId = User.Identity?.Name ?? "Unknown";
-            if (room.OwnerId != callerId) return Forbid();
+            if (room.OwnerId != CurrentUserId) return Forbid();
 
-            _roomManager.SetWebhook(roomId, url);
+            if (!_roomManager.SetWebhook(roomId, url)) return BadRequest("Only Discord webhook URLs are allowed.");
             return Ok();
         }
 
@@ -295,8 +278,7 @@ namespace JellyParty.Plugin.Api
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
 
-            var callerId = User.Identity?.Name ?? "Unknown";
-            if (room.OwnerId != callerId && !room.CoHostIds.Contains(callerId)) return Forbid();
+            if (!CanManage(room)) return Forbid();
 
             _roomManager.SetTheme(roomId, theme);
             return Ok();
@@ -308,8 +290,8 @@ namespace JellyParty.Plugin.Api
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
 
-            var callerId = User.Identity?.Name ?? "Unknown";
-            _roomManager.SetBuffering(roomId, callerId, isBuffering);
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+            _roomManager.SetBuffering(roomId, CurrentUserId, isBuffering);
             return Ok();
         }
 
@@ -319,8 +301,7 @@ namespace JellyParty.Plugin.Api
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
 
-            var callerId = User.Identity?.Name ?? "Unknown";
-            if (room.OwnerId != callerId) return Forbid();
+            if (room.OwnerId != CurrentUserId) return Forbid();
 
             _roomManager.ToggleHostControl(roomId);
             return Ok();
@@ -331,15 +312,16 @@ namespace JellyParty.Plugin.Api
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
 
             var message = new ChatMessage
             {
-                UserId = User.Identity?.Name ?? "Unknown",
-                UserName = User.Identity?.Name ?? "Unknown",
+                UserId = CurrentUserId,
+                UserName = CurrentUserId,
                 Text = text
             };
 
-            _roomManager.AddMessage(roomId, message);
+            if (!_roomManager.AddMessage(roomId, message)) return Forbid();
             return Ok();
         }
         [HttpGet("Rooms/{roomId}/Recap")]
@@ -347,6 +329,7 @@ namespace JellyParty.Plugin.Api
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
+            if (!CanView(room)) return Forbid();
             return Ok(room.Stats);
         }
 
@@ -355,8 +338,7 @@ namespace JellyParty.Plugin.Api
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
-            var userId = User.Identity?.Name ?? "Unknown";
-            if (room.OwnerId != userId) return Forbid();
+            if (room.OwnerId != CurrentUserId) return Forbid();
 
             _roomManager.SetDiscordStage(roomId, request.BotToken, request.StageId);
             return Ok();
@@ -367,20 +349,36 @@ namespace JellyParty.Plugin.Api
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
-            var userId = User.Identity?.Name ?? "Unknown";
-            if (room.OwnerId != userId && !room.CoHostIds.Contains(userId)) return Forbid();
+            if (!CanManage(room)) return Forbid();
 
             await _roomManager.UpdateDiscordStage(roomId, title);
             return Ok();
         }
 
-        private void MaskSensitive(JellyPartyRoom room)
+        private bool CanView(JellTogetherRoom room)
         {
-            var userId = User.Identity?.Name ?? "Unknown";
-            if (room.OwnerId != userId)
+            return !room.IsPrivate ||
+                room.Participants.Contains(CurrentUserId) ||
+                room.OwnerId == CurrentUserId ||
+                room.CoHostIds.Contains(CurrentUserId);
+        }
+
+        private bool CanManage(JellTogetherRoom room)
+        {
+            return room.OwnerId == CurrentUserId || room.CoHostIds.Contains(CurrentUserId);
+        }
+
+        private JellTogetherRoom RoomForUser(JellTogetherRoom room)
+        {
+            room.DiscordBotToken = null;
+
+            if (room.OwnerId != CurrentUserId && !room.CoHostIds.Contains(CurrentUserId))
             {
-                room.DiscordBotToken = null;
+                room.DiscordWebhookUrl = null;
+                room.Invitations = new List<JellTogetherInvite>();
             }
+
+            return room;
         }
     }
 }
