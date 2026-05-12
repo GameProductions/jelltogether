@@ -1,4 +1,7 @@
+using System;
 using System.Collections.Generic;
+using System.Security.Claims;
+using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using JellTogether.Plugin.Services;
@@ -25,6 +28,12 @@ namespace JellTogether.Plugin.Api
         public string StageId { get; set; } = string.Empty;
     }
 
+    public class CompanionSettingsRequest
+    {
+        public string PublicJellyfinUrl { get; set; } = string.Empty;
+        public string PublicCompanionUrl { get; set; } = string.Empty;
+    }
+
     [ApiController]
     [Route("jelltogether")]
     [Authorize]
@@ -33,10 +42,65 @@ namespace JellTogether.Plugin.Api
         private RoomManager _roomManager => Plugin.Instance?.RoomManager ?? throw new System.Exception("Plugin not initialized");
         private string CurrentUserId => User.Identity?.Name ?? "Unknown";
 
+        [HttpGet]
+        [AllowAnonymous]
+        public IActionResult Open()
+        {
+            return Redirect(CompanionUrl());
+        }
+
+        [HttpGet("Companion")]
+        [AllowAnonymous]
+        public IActionResult OpenCompanion()
+        {
+            return Redirect(CompanionUrl());
+        }
+
+        [HttpGet("Invite/{code}")]
+        [AllowAnonymous]
+        public IActionResult OpenInvite(string code)
+        {
+            return Redirect(CompanionUrl(code));
+        }
+
         [HttpGet("CurrentUser")]
         public ActionResult<object> GetCurrentUser()
         {
             return Ok(new { id = CurrentUserId, name = CurrentUserId });
+        }
+
+        [HttpGet("Settings")]
+        public ActionResult<object> GetSettings()
+        {
+            var config = Plugin.Instance?.Configuration;
+            return Ok(new
+            {
+                publicJellyfinUrl = NormalizeBaseUrl(config?.PublicJellyfinUrl),
+                publicCompanionUrl = NormalizeBaseUrl(config?.PublicCompanionUrl),
+                canSavePublicAccessSettings = IsElevatedUser()
+            });
+        }
+
+        [HttpPost("Settings")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        public ActionResult SaveSettings([FromBody] CompanionSettingsRequest request)
+        {
+            if (request == null) return BadRequest("Settings payload is required.");
+
+            var publicJellyfinUrl = NormalizeBaseUrl(request.PublicJellyfinUrl);
+            var publicCompanionUrl = NormalizeBaseUrl(request.PublicCompanionUrl);
+
+            if (!IsValidPublicUrl(publicJellyfinUrl)) return BadRequest("Public Jellyfin URL must be a valid http(s) URL.");
+            if (!IsValidPublicUrl(publicCompanionUrl)) return BadRequest("Public companion URL must be a valid http(s) URL.");
+
+            var plugin = Plugin.Instance;
+            if (plugin == null) return StatusCode(500, "Plugin not initialized.");
+
+            var config = plugin.Configuration;
+            config.PublicJellyfinUrl = publicJellyfinUrl;
+            config.PublicCompanionUrl = publicCompanionUrl;
+            plugin.SaveConfiguration(config);
+            return Ok();
         }
 
         [HttpPost("Rooms")]
@@ -379,6 +443,51 @@ namespace JellTogether.Plugin.Api
             }
 
             return room;
+        }
+
+        private string CompanionUrl(string? code = null)
+        {
+            var configuredCompanion = NormalizeBaseUrl(Plugin.Instance?.Configuration.PublicCompanionUrl);
+            if (!string.IsNullOrEmpty(configuredCompanion))
+            {
+                return string.IsNullOrWhiteSpace(code)
+                    ? configuredCompanion
+                    : $"{configuredCompanion}/Invite/{Uri.EscapeDataString(code.Trim())}";
+            }
+
+            var basePath = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
+            var query = string.IsNullOrWhiteSpace(code) ? string.Empty : $"?code={Uri.EscapeDataString(code.Trim())}";
+            return $"{basePath}/web/{query}#/configurationpage?name=jelltogether";
+        }
+
+        private static string NormalizeBaseUrl(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().TrimEnd('/');
+        }
+
+        private static bool IsValidPublicUrl(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return true;
+            return Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
+                (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
+        }
+
+        private bool IsElevatedUser()
+        {
+            if (User.IsInRole("Administrator")) return true;
+
+            return User.Claims.Any(claim =>
+                IsTruthyAdminClaim(claim) ||
+                claim.Value.Equals("Administrator", StringComparison.OrdinalIgnoreCase) ||
+                claim.Value.Equals("RequiresElevation", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool IsTruthyAdminClaim(Claim claim)
+        {
+            var claimType = claim.Type.Split('/').Last();
+            return claimType.Equals("IsAdministrator", StringComparison.OrdinalIgnoreCase) &&
+                bool.TryParse(claim.Value, out var isAdmin) &&
+                isAdmin;
         }
     }
 }

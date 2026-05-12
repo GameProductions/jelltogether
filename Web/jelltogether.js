@@ -1,5 +1,8 @@
 class JellTogetherApp {
     constructor() {
+        this.publicJellyfinUrl = "";
+        this.publicCompanionOrigin = "";
+        this.canSavePublicAccessSettings = false;
         this.currentRoom = null;
         this.currentUser = "Unknown";
         this.lastUpdate = new Date(0).toISOString();
@@ -19,8 +22,8 @@ class JellTogetherApp {
     }
 
     async init() {
-        const params = new URLSearchParams(window.location.search);
-        const inviteCode = params.get('code');
+        const inviteCode = this.getInviteCodeFromUrl();
+        await this.loadSettings();
         await this.loadCurrentUser();
         await this.loadRooms();
         this.startLobbyPolling();
@@ -28,6 +31,46 @@ class JellTogetherApp {
         this.createStars();
         this.setupEventHandlers();
         if (inviteCode) this.joinByCode(inviteCode);
+    }
+
+    getInviteCodeFromUrl() {
+        const params = new URLSearchParams(window.location.search);
+        const directCode = params.get('code');
+        if (directCode) return directCode;
+
+        const hashQuery = window.location.hash.includes('?')
+            ? window.location.hash.substring(window.location.hash.indexOf('?') + 1)
+            : '';
+        return new URLSearchParams(hashQuery).get('code');
+    }
+
+    companionUrl(code = null) {
+        const origin = this.publicCompanionOrigin || window.location.origin;
+        const url = new URL(this.publicCompanionOrigin ? '/' : '/jelltogether/Companion', origin);
+        if (code) {
+            url.pathname = this.publicCompanionOrigin
+                ? `/Invite/${encodeURIComponent(code)}`
+                : `/jelltogether/Invite/${encodeURIComponent(code)}`;
+        }
+        return url.toString();
+    }
+
+    async loadSettings() {
+        try {
+            const settings = await this.fetchJson('/jelltogether/Settings');
+            this.publicJellyfinUrl = settings.publicJellyfinUrl || "";
+            this.publicCompanionOrigin = settings.publicCompanionUrl || "";
+            this.canSavePublicAccessSettings = settings.canSavePublicAccessSettings === true;
+        } catch (e) {
+            console.error("Settings Load Error:", e);
+        }
+
+        const publicAccessSettings = document.getElementById('public-access-settings');
+        const jellyfinInput = document.getElementById('public-jellyfin-url');
+        const companionInput = document.getElementById('public-companion-url');
+        if (publicAccessSettings) publicAccessSettings.style.display = this.canSavePublicAccessSettings ? 'block' : 'none';
+        if (jellyfinInput) jellyfinInput.value = this.publicJellyfinUrl;
+        if (companionInput) companionInput.value = this.publicCompanionOrigin;
     }
 
     setupEventHandlers() {
@@ -664,20 +707,33 @@ class JellTogetherApp {
     }
 
     showInviteLink(code) {
-        const url = new URL(window.location.href);
-        url.searchParams.set('code', code);
-        const link = url.toString();
-        const qrContainer = document.getElementById('qr-container');
-        if (qrContainer) {
-            this.clear(qrContainer);
-            const img = document.createElement('img');
-            img.src = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(link)}&color=4a00e0`;
-            img.alt = 'Invite QR code';
-            img.style.width = '100%';
-            qrContainer.appendChild(img);
-        }
+        const link = this.companionUrl(code);
+        this.renderInviteQr(link);
         document.getElementById('share-link-text').value = link;
+        document.getElementById('public-companion-link-text').value = this.companionUrl();
         document.getElementById('invite-code-text').textContent = code;
+    }
+
+    updateInviteQrVisibility() {
+        const link = document.getElementById('share-link-text')?.value;
+        if (link) this.renderInviteQr(link);
+    }
+
+    renderInviteQr(link) {
+        const qrContainer = document.getElementById('qr-container');
+        const showQr = document.getElementById('show-qr-code')?.checked !== false;
+        if (!qrContainer) return;
+
+        this.clear(qrContainer);
+        qrContainer.style.display = showQr ? 'block' : 'none';
+        if (!showQr) return;
+
+        try {
+            qrContainer.appendChild(this.createQrSvg(link));
+        } catch (e) {
+            console.error("QR Render Error:", e);
+            qrContainer.textContent = "QR unavailable";
+        }
     }
 
     showShareModal() {
@@ -696,8 +752,272 @@ class JellTogetherApp {
         await navigator.clipboard.writeText(document.getElementById('share-link-text').value);
     }
 
+    async copyCompanionLink() {
+        await navigator.clipboard.writeText(this.companionUrl());
+    }
+
+    async savePublicAccessSettings() {
+        const publicJellyfinUrl = document.getElementById('public-jellyfin-url')?.value?.trim() || "";
+        const publicCompanionUrl = document.getElementById('public-companion-url')?.value?.trim() || "";
+
+        try {
+            const resp = await fetch('/jelltogether/Settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ publicJellyfinUrl, publicCompanionUrl })
+            });
+            if (!resp.ok) throw new Error(`Settings save failed with ${resp.status}`);
+            await this.loadSettings();
+        } catch (e) {
+            console.error("Settings Save Error:", e);
+            alert("Only Jellyfin administrators can save public access settings.");
+        }
+    }
+
     async copyInvite() {
         await navigator.clipboard.writeText(document.getElementById('invite-code-text').textContent);
+    }
+
+    createQrSvg(text) {
+        const qr = this.createQrMatrix(text);
+        const quiet = 4;
+        const size = qr.length + quiet * 2;
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
+        svg.setAttribute('role', 'img');
+        svg.setAttribute('aria-label', 'Invite QR code');
+
+        const bg = document.createElementNS(svg.namespaceURI, 'rect');
+        bg.setAttribute('width', size);
+        bg.setAttribute('height', size);
+        bg.setAttribute('fill', '#ffffff');
+        svg.appendChild(bg);
+
+        const path = document.createElementNS(svg.namespaceURI, 'path');
+        const parts = [];
+        for (let y = 0; y < qr.length; y++) {
+            for (let x = 0; x < qr.length; x++) {
+                if (qr[y][x]) parts.push(`M${x + quiet},${y + quiet}h1v1h-1z`);
+            }
+        }
+        path.setAttribute('d', parts.join(''));
+        path.setAttribute('fill', '#08111f');
+        svg.appendChild(path);
+        return svg;
+    }
+
+    createQrMatrix(text) {
+        const versions = [
+            null,
+            { version: 1, size: 21, dataCodewords: 19, ecCodewords: 7, alignment: [], blocks: [19] },
+            { version: 2, size: 25, dataCodewords: 34, ecCodewords: 10, alignment: [6, 18], blocks: [34] },
+            { version: 3, size: 29, dataCodewords: 55, ecCodewords: 15, alignment: [6, 22], blocks: [55] },
+            { version: 4, size: 33, dataCodewords: 80, ecCodewords: 20, alignment: [6, 26], blocks: [80] },
+            { version: 5, size: 37, dataCodewords: 108, ecCodewords: 26, alignment: [6, 30], blocks: [108] },
+            { version: 6, size: 41, dataCodewords: 136, ecCodewords: 18, alignment: [6, 34], blocks: [68, 68] },
+            { version: 7, size: 45, dataCodewords: 156, ecCodewords: 20, alignment: [6, 22, 38], blocks: [78, 78] },
+            { version: 8, size: 49, dataCodewords: 194, ecCodewords: 24, alignment: [6, 24, 42], blocks: [97, 97] },
+            { version: 9, size: 53, dataCodewords: 232, ecCodewords: 30, alignment: [6, 26, 46], blocks: [116, 116] },
+            { version: 10, size: 57, dataCodewords: 274, ecCodewords: 18, alignment: [6, 28, 50], blocks: [68, 68, 69, 69] }
+        ];
+        const bytes = Array.from(new TextEncoder().encode(text));
+        const spec = versions.find(v => v && bytes.length <= v.dataCodewords - 2);
+        if (!spec) throw new Error("Invite link is too long for built-in QR generator.");
+
+        const data = this.qrDataCodewords(bytes, spec.dataCodewords);
+        const codewords = this.qrInterleavedCodewords(data, spec);
+        const bits = codewords.flatMap(b => Array.from({ length: 8 }, (_, i) => (b >>> (7 - i)) & 1));
+        const modules = Array.from({ length: spec.size }, () => Array(spec.size).fill(false));
+        const reserved = Array.from({ length: spec.size }, () => Array(spec.size).fill(false));
+
+        this.qrDrawFunctionPatterns(modules, reserved, spec);
+        if (spec.version >= 7) this.qrDrawVersionBits(modules, reserved, spec.version);
+        this.qrDrawData(modules, reserved, bits);
+        this.qrDrawFormatBits(modules, reserved, 0);
+        return modules;
+    }
+
+    qrInterleavedCodewords(data, spec) {
+        const dataBlocks = [];
+        const ecBlocks = [];
+        let offset = 0;
+
+        for (const size of spec.blocks) {
+            const block = data.slice(offset, offset + size);
+            offset += size;
+            dataBlocks.push(block);
+            ecBlocks.push(this.qrReedSolomon(block, spec.ecCodewords));
+        }
+
+        const interleaved = [];
+        const maxDataLength = Math.max(...dataBlocks.map(block => block.length));
+        for (let i = 0; i < maxDataLength; i++) {
+            for (const block of dataBlocks) {
+                if (i < block.length) interleaved.push(block[i]);
+            }
+        }
+        for (let i = 0; i < spec.ecCodewords; i++) {
+            for (const block of ecBlocks) interleaved.push(block[i]);
+        }
+        return interleaved;
+    }
+
+    qrDataCodewords(bytes, dataCodewords) {
+        const bits = [0, 1, 0, 0];
+        for (let i = 7; i >= 0; i--) bits.push((bytes.length >>> i) & 1);
+        for (const byte of bytes) {
+            for (let i = 7; i >= 0; i--) bits.push((byte >>> i) & 1);
+        }
+        bits.push(0, 0, 0, 0);
+        while (bits.length % 8) bits.push(0);
+
+        const data = [];
+        for (let i = 0; i < bits.length && data.length < dataCodewords; i += 8) {
+            data.push(bits.slice(i, i + 8).reduce((v, bit) => (v << 1) | bit, 0));
+        }
+        for (let pad = 0xec; data.length < dataCodewords; pad = pad === 0xec ? 0x11 : 0xec) {
+            data.push(pad);
+        }
+        return data;
+    }
+
+    qrReedSolomon(data, ecCount) {
+        const exp = new Array(512);
+        const log = new Array(256);
+        let x = 1;
+        for (let i = 0; i < 255; i++) {
+            exp[i] = x;
+            log[x] = i;
+            x <<= 1;
+            if (x & 0x100) x ^= 0x11d;
+        }
+        for (let i = 255; i < 512; i++) exp[i] = exp[i - 255];
+
+        const mul = (a, b) => a && b ? exp[log[a] + log[b]] : 0;
+        let gen = [1];
+        for (let i = 0; i < ecCount; i++) {
+            const next = new Array(gen.length + 1).fill(0);
+            for (let j = 0; j < gen.length; j++) {
+                next[j] ^= gen[j];
+                next[j + 1] ^= mul(gen[j], exp[i]);
+            }
+            gen = next;
+        }
+
+        const res = new Array(ecCount).fill(0);
+        for (const byte of data) {
+            const factor = byte ^ res.shift();
+            res.push(0);
+            for (let i = 0; i < ecCount; i++) res[i] ^= mul(gen[i + 1], factor);
+        }
+        return res;
+    }
+
+    qrDrawFunctionPatterns(modules, reserved, spec) {
+        const size = spec.size;
+        const set = (x, y, dark, reserve = true) => {
+            if (x < 0 || y < 0 || x >= size || y >= size) return;
+            modules[y][x] = dark;
+            if (reserve) reserved[y][x] = true;
+        };
+        const finder = (x, y) => {
+            for (let dy = -1; dy <= 7; dy++) {
+                for (let dx = -1; dx <= 7; dx++) {
+                    const xx = x + dx, yy = y + dy;
+                    const dark = dx >= 0 && dx <= 6 && dy >= 0 && dy <= 6 &&
+                        (dx === 0 || dx === 6 || dy === 0 || dy === 6 || (dx >= 2 && dx <= 4 && dy >= 2 && dy <= 4));
+                    set(xx, yy, dark);
+                }
+            }
+        };
+        finder(0, 0);
+        finder(size - 7, 0);
+        finder(0, size - 7);
+
+        for (let i = 8; i < size - 8; i++) {
+            set(i, 6, i % 2 === 0);
+            set(6, i, i % 2 === 0);
+        }
+        for (const ax of spec.alignment) {
+            for (const ay of spec.alignment) {
+                if ((ax === 6 && ay === 6) || (ax === 6 && ay === size - 7) || (ax === size - 7 && ay === 6)) continue;
+                for (let dy = -2; dy <= 2; dy++) {
+                    for (let dx = -2; dx <= 2; dx++) {
+                        set(ax + dx, ay + dy, Math.max(Math.abs(dx), Math.abs(dy)) !== 1);
+                    }
+                }
+            }
+        }
+        set(8, size - 8, true);
+        for (let i = 0; i < 9; i++) {
+            reserved[8][i] = true;
+            reserved[i][8] = true;
+            reserved[8][size - 1 - i] = true;
+            reserved[size - 1 - i][8] = true;
+        }
+    }
+
+    qrDrawVersionBits(modules, reserved, version) {
+        const size = modules.length;
+        let bits = version << 12;
+        for (let i = 17; i >= 12; i--) {
+            if ((bits >>> i) & 1) bits ^= 0x1f25 << (i - 12);
+        }
+        const versionBits = (version << 12) | bits;
+        const get = i => ((versionBits >>> i) & 1) === 1;
+
+        for (let i = 0; i < 18; i++) {
+            const x1 = size - 11 + (i % 3);
+            const y1 = Math.floor(i / 3);
+            modules[y1][x1] = get(i);
+            reserved[y1][x1] = true;
+
+            const x2 = Math.floor(i / 3);
+            const y2 = size - 11 + (i % 3);
+            modules[y2][x2] = get(i);
+            reserved[y2][x2] = true;
+        }
+    }
+
+    qrDrawData(modules, reserved, bits) {
+        const size = modules.length;
+        let bitIndex = 0;
+        let upward = true;
+        for (let right = size - 1; right >= 1; right -= 2) {
+            if (right === 6) right--;
+            for (let vert = 0; vert < size; vert++) {
+                const y = upward ? size - 1 - vert : vert;
+                for (let dx = 0; dx < 2; dx++) {
+                    const x = right - dx;
+                    if (reserved[y][x]) continue;
+                    const raw = bitIndex < bits.length ? bits[bitIndex++] === 1 : false;
+                    modules[y][x] = raw !== ((x + y) % 2 === 0);
+                }
+            }
+            upward = !upward;
+        }
+    }
+
+    qrDrawFormatBits(modules, reserved, mask) {
+        const size = modules.length;
+        const data = (1 << 3) | mask;
+        let bits = data << 10;
+        for (let i = 14; i >= 10; i--) {
+            if ((bits >>> i) & 1) bits ^= 0x537 << (i - 10);
+        }
+        const format = (((data << 10) | bits) ^ 0x5412) & 0x7fff;
+        const get = i => ((format >>> i) & 1) === 1;
+        const set = (x, y, i) => {
+            modules[y][x] = get(i);
+            reserved[y][x] = true;
+        };
+        for (let i = 0; i <= 5; i++) set(8, i, i);
+        set(8, 7, 6);
+        set(8, 8, 7);
+        set(7, 8, 8);
+        for (let i = 9; i < 15; i++) set(14 - i, 8, i);
+        for (let i = 0; i < 8; i++) set(size - 1 - i, 8, i);
+        for (let i = 8; i < 15; i++) set(8, size - 15 + i, i);
     }
 }
 

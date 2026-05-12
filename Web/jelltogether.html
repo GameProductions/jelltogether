@@ -4,35 +4,43 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>JellTogether | Premium Watch Party</title>
-    <link rel="stylesheet" href="configurationpage?name=jelltogether.css">
+    <link rel="stylesheet" href="configurationpage?name=jelltogether.css" onerror="this.onerror=null;this.href='jelltogether.css';">
 </head>
 <body>
     <div class="vr-stars" id="vr-stars"></div>
     <div class="app-container">
         <!-- Main Content Area -->
         <main class="main-content">
-            <header>
+            <header class="topbar">
                 <div class="logo">
-                    <img src="configurationpage?name=logo.png" alt="" aria-hidden="true">
-                    JellTogether
+                    <img src="configurationpage?name=logo.png" alt="" aria-hidden="true" onerror="this.onerror=null;this.src='../logo.png';">
+                    <span>JellTogether</span>
                 </div>
                 <div class="user-profile">
+                    <span class="profile-label">Signed in</span>
                     <span id="display-name">Loading...</span>
                 </div>
             </header>
 
             <div id="lobby-view" class="view">
-                <section style="margin-top: 40px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <h1>Active Watch Parties</h1>
-                        <button class="btn-join" style="width: auto; padding: 12px 25px;" onclick="app.createRoom()">+ Create Party</button>
+                <section class="lobby-shell">
+                    <div class="hero-panel">
+                        <div>
+                            <div class="eyebrow">Jellyfin watch party companion</div>
+                            <h1>Active Watch Parties</h1>
+                            <p>Host synced viewing sessions with chat, reactions, polls, queueing, and theater controls.</p>
+                        </div>
+                        <div class="hero-actions">
+                            <button class="primary-command" onclick="app.createRoom()">Create Party</button>
+                            <button class="secondary-command" onclick="app.copyCompanionLink()">Copy Companion Link</button>
+                        </div>
                     </div>
 
-                    <div class="glass-input-container" style="display: flex; gap: 10px; margin-top: 20px; margin-bottom: 30px; max-width: 500px;">
-                        <input type="text" id="join-code-input" class="glass-input" placeholder="Enter Invite Code (e.g. X9K2)" style="margin-bottom: 0;">
-                        <button class="action-btn" onclick="app.joinByCode()" style="padding: 0 25px; height: 50px;">Join</button>
+                    <div class="join-panel">
+                        <input type="text" id="join-code-input" class="glass-input" placeholder="Enter invite code">
+                        <button class="secondary-command" onclick="app.joinByCode()">Join</button>
                     </div>
-                    
+
                     <div id="room-grid" class="room-grid">
                         <div class="loading">Searching for active parties...</div>
                     </div>
@@ -40,32 +48,42 @@
             </div>
 
             <div id="party-view" class="view" style="display: none;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-                    <button onclick="app.leaveRoom()" style="background: none; border: none; color: var(--text-dim); cursor: pointer;">← Back to Lobby</button>
-                    <button id="btn-vr-mode" class="action-btn" onclick="app.toggleImmersiveMode()" style="display: none; border-radius: 50px; padding: 5px 15px; font-size: 0.7rem;">🥽 Enter VR</button>
+                <div class="room-toolbar">
+                    <button class="ghost-command" onclick="app.leaveRoom()">Back to Lobby</button>
+                    <button id="btn-vr-mode" class="pill-command" onclick="app.toggleImmersiveMode()" style="display: none;">Enter VR</button>
                 </div>
-                <h1 id="current-room-name">Party Name</h1>
-                <div class="room-stats">
-                    <span id="participant-count">0 participants</span>
+                <div class="room-heading">
+                    <div>
+                        <div class="eyebrow">Now hosting</div>
+                        <h1 id="current-room-name">Party Name</h1>
+                    </div>
+                    <div class="room-stats">
+                        <span id="participant-count">0 participants</span>
+                    </div>
                 </div>
-                
-                <div class="player-placeholder" style="margin-top: 30px; height: 400px; background: var(--glass); border: 1px solid var(--glass-border); border-radius: 24px; display: flex; align-items: center; justify-content: center; color: var(--text-dim);">
-                    Integration with Jellyfin Player Active
+
+                <div class="player-placeholder">
+                    <div class="player-frame">
+                        <div class="play-mark"></div>
+                        <span>Jellyfin Player Sync Active</span>
+                    </div>
                 </div>
 
                 <div class="cinema-seats" id="cinema-seats"></div>
 
-                <section style="margin-top: 40px;">
-                    <h3>Theory Board</h3>
+                <section class="content-section">
+                    <div class="section-heading">
+                        <h3>Theory Board</h3>
+                    </div>
                     <div id="theory-board" class="theory-board">
-                        <button class="action-btn" onclick="app.addTheory()" style="height: 150px; width: 150px;">+ New Theory</button>
+                        <button class="new-tile-command" onclick="app.addTheory()">New Theory</button>
                     </div>
                 </section>
 
-                <section style="margin-top: 40px; margin-bottom: 50px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                <section class="content-section">
+                    <div class="section-heading">
                         <h3>Up Next</h3>
-                        <button class="btn-join" style="width: auto; padding: 5px 15px;" onclick="app.addToQueue()">+ Add to Queue</button>
+                        <button class="secondary-command compact" onclick="app.addToQueue()">Add to Queue</button>
                     </div>
                     <div id="queue-panel" class="queue-panel">
                         <div class="loading">Queue is empty.</div>
@@ -75,27 +93,40 @@
         </main>
 
         <aside class="sidebar">
-            <header style="padding: 20px 30px; border-bottom: 1px solid var(--glass-border);">
-                <h3>Party Management</h3>
+            <header class="sidebar-header">
+                <div>
+                    <div class="eyebrow">Control room</div>
+                    <h3>Party Management</h3>
+                </div>
                 <div class="status-dot" title="Connected"></div>
             </header>
 
-            <div id="participant-section" class="participant-section" style="padding: 20px; border-bottom: 1px solid var(--glass-border); max-height: 250px; overflow-y: auto; display: none;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <div style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim);">Participants</div>
-                    <div id="participant-controls" style="display: flex; gap: 5px;">
+            <div id="public-access-settings" class="admin-group" style="display: none;">
+                <div class="section-label">Public Access</div>
+                <input type="url" id="public-jellyfin-url" placeholder="Public Jellyfin URL" class="chat-input">
+                <input type="url" id="public-companion-url" placeholder="Public companion URL" class="chat-input">
+                <div class="split-actions">
+                    <button class="secondary-command" onclick="app.copyCompanionLink()">Copy Link</button>
+                    <button class="primary-command" onclick="app.savePublicAccessSettings()">Save</button>
+                </div>
+            </div>
+
+            <div id="participant-section" class="participant-section" style="display: none;">
+                <div class="panel-title-row">
+                    <div class="section-label">Participants</div>
+                    <div id="participant-controls" class="icon-row">
                         <button id="btn-toggle-participant-invites" class="action-btn" onclick="app.toggleParticipantInvites()" title="Toggle Invite Privileges">🤝</button>
                         <button id="btn-toggle-privacy" class="action-btn" onclick="app.togglePrivacy()" title="Toggle Privacy">👁️</button>
                         <button id="btn-toggle-control" class="action-btn" onclick="app.toggleHostControl()" title="Toggle Control">🔓</button>
                     </div>
                 </div>
 
-                <div id="invite-code-container" style="background: var(--glass); border: 1px solid var(--glass-border); padding: 10px; border-radius: 12px; margin-bottom: 20px; display: flex; flex-direction: column; gap: 10px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <span id="invite-code-text" style="font-family: monospace; font-weight: bold; color: var(--accent);">CODE</span>
-                        <div style="display: flex; gap: 5px;">
-                            <button class="action-btn" style="padding: 5px 10px; font-size: 0.7rem;" onclick="app.copyInvite()">Copy</button>
-                            <button class="action-btn" style="padding: 5px 10px; font-size: 0.7rem;" onclick="app.showShareModal()">QR/Link</button>
+                <div id="invite-code-container">
+                    <div class="invite-code-row">
+                        <span id="invite-code-text">CODE</span>
+                        <div class="inline-actions">
+                            <button class="secondary-command compact" onclick="app.copyInvite()">Copy</button>
+                            <button class="secondary-command compact" onclick="app.showShareModal()">QR/Link</button>
                         </div>
                     </div>
                 </div>
@@ -103,9 +134,9 @@
                 <div id="participant-list" class="participant-list"></div>
             </div>
 
-            <div id="host-theme-controls" class="admin-group" style="display: none; padding: 20px; border-bottom: 1px solid var(--glass-border);">
-                <div style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin-bottom: 10px;">Theater Theme</div>
-                <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+            <div id="host-theme-controls" class="admin-group" style="display: none;">
+                <div class="section-label">Theater Theme</div>
+                <div class="theme-grid">
                     <button class="btn-theme" onclick="app.setTheme('default')">Modern</button>
                     <button class="btn-theme" onclick="app.setTheme('cinema')">Classic</button>
                     <button class="btn-theme" onclick="app.setTheme('horror')">Horror</button>
@@ -114,17 +145,17 @@
                 </div>
             </div>
 
-            <div id="host-discord-stage" class="admin-group" style="display: none; padding: 20px; border-bottom: 1px solid var(--glass-border);">
-                <div style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin-bottom: 10px;">Discord Stage</div>
-                <input type="text" id="discord-stage-id" placeholder="Stage Channel ID" class="chat-input" style="margin-bottom: 0.5rem;">
-                <input type="password" id="discord-bot-token" placeholder="Bot Token" class="chat-input" style="margin-bottom: 0.5rem;">
-                <div style="display: flex; gap: 0.5rem;">
-                    <button class="action-btn" onclick="app.saveDiscordStage()" style="flex: 1;">Save</button>
-                    <button class="action-btn" onclick="app.syncDiscordStage()" style="flex: 1; background: var(--accent);">Sync</button>
+            <div id="host-discord-stage" class="admin-group" style="display: none;">
+                <div class="section-label">Discord Stage</div>
+                <input type="text" id="discord-stage-id" placeholder="Stage Channel ID" class="chat-input">
+                <input type="password" id="discord-bot-token" placeholder="Bot Token" class="chat-input">
+                <div class="split-actions">
+                    <button class="secondary-command" onclick="app.saveDiscordStage()">Save</button>
+                    <button class="primary-command" onclick="app.syncDiscordStage()">Sync</button>
                 </div>
             </div>
 
-            <div class="reaction-bar" style="padding: 10px 20px; display: flex; justify-content: space-around; border-bottom: 1px solid var(--glass-border);">
+            <div class="reaction-bar">
                 <button class="action-btn" onclick="app.sendReaction('🔥')">🔥</button>
                 <button class="action-btn" onclick="app.sendReaction('😂')">😂</button>
                 <button class="action-btn" onclick="app.sendReaction('😮')">😮</button>
@@ -132,16 +163,16 @@
                 <button class="action-btn" onclick="app.sendReaction('👏')">👏</button>
             </div>
 
-            <div id="poll-section" class="poll-section" style="padding: 20px; border-bottom: 1px solid var(--glass-border); display: none;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <div style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim);">Live Polls</div>
+            <div id="poll-section" class="poll-section" style="display: none;">
+                <div class="panel-title-row">
+                    <div class="section-label">Live Polls</div>
                     <button id="btn-new-poll" class="action-btn" style="display: none;" onclick="showPollModal()">+</button>
                 </div>
                 <div id="poll-list" class="poll-list"></div>
             </div>
-            
+
             <div class="chat-container">
-                <div style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin-bottom: 15px; padding: 0 10px;">Chat</div>
+                <div class="section-label">Chat</div>
                 <div id="chat-messages" class="chat-messages"></div>
                 <div class="chat-input-area">
                     <input type="text" id="chat-input" class="chat-input" placeholder="Type a message..." disabled>
@@ -156,20 +187,30 @@
     </div>
 
     <!-- Modals -->
-    <div id="share-modal" class="glass-card" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1000; padding: 30px; width: 90%; max-width: 450px; text-align: center;">
+    <div id="share-modal" class="glass-card share-modal" style="display: none;">
         <h3>Invite Manager</h3>
-        <div id="qr-container" style="margin: 20px auto; width: 180px; height: 180px; background: white; padding: 10px; border-radius: 12px;"></div>
-        <div class="glass-input-container" style="margin-bottom: 20px;">
+        <label class="toggle-row">
+            <input type="checkbox" id="show-qr-code" checked onchange="app.updateInviteQrVisibility()">
+            <span>Show QR code</span>
+        </label>
+        <div id="qr-container"></div>
+        <div class="share-field-label">Invite link</div>
+        <div class="glass-input-container">
             <input type="text" id="share-link-text" class="glass-input" readonly>
         </div>
-        <div style="display: flex; gap: 10px;">
-            <button class="action-btn" style="flex: 1;" onclick="app.copyShareLink()">Copy Link</button>
-            <button class="action-btn" style="flex: 1; background: var(--text-dim);" onclick="app.hideShareModal()">Close</button>
+        <div class="share-field-label">Public companion URL</div>
+        <div class="glass-input-container">
+            <input type="text" id="public-companion-link-text" class="glass-input" readonly>
+        </div>
+        <div class="split-actions">
+            <button class="primary-command" onclick="app.copyShareLink()">Copy Link</button>
+            <button class="secondary-command" onclick="app.copyCompanionLink()">Copy Companion</button>
+            <button class="secondary-command" onclick="app.hideShareModal()">Close</button>
         </div>
     </div>
-    <div id="modal-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 999;" onclick="app.hideShareModal()"></div>
+    <div id="modal-overlay" onclick="app.hideShareModal()"></div>
 
-    <script src="configurationpage?name=strings.js"></script>
-    <script src="configurationpage?name=jelltogether.js"></script>
+    <script src="configurationpage?name=strings.js" onerror="this.onerror=null;this.src='strings.js';"></script>
+    <script src="configurationpage?name=jelltogether.js" onerror="this.onerror=null;this.src='jelltogether.js';"></script>
 </body>
 </html>
