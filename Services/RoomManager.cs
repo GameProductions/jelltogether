@@ -218,6 +218,30 @@ namespace JellTogether.Plugin.Services
             }
         }
 
+        public bool RenameRoom(string roomId, string name)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room)) return false;
+                var nextName = TrimToLimit(name, 120);
+                if (string.IsNullOrWhiteSpace(nextName)) return false;
+
+                room.Name = nextName;
+                Touch(room);
+                return true;
+            }
+        }
+
+        public bool DeleteRoom(string roomId)
+        {
+            lock (_roomLock)
+            {
+                var removed = _rooms.TryRemove(roomId, out _);
+                if (removed) SaveRooms();
+                return removed;
+            }
+        }
+
         public JellTogetherRoom? GetRoom(string roomId)
         {
             lock (_roomLock)
@@ -572,6 +596,23 @@ namespace JellTogether.Plugin.Services
             }
         }
 
+        public bool RemoveQueueItem(string roomId, string itemId, string userId)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room)) return false;
+                var item = room.Queue.FirstOrDefault(i => i.Id == itemId);
+                if (item == null) return false;
+
+                var canManage = room.OwnerId == userId || room.CoHostIds.Contains(userId);
+                if (!canManage && item.AddedBy != userId) return false;
+
+                room.Queue.Remove(item);
+                Touch(room);
+                return true;
+            }
+        }
+
         public void AddTheory(string roomId, string text, string userId)
         {
             lock (_roomLock)
@@ -581,6 +622,23 @@ namespace JellTogether.Plugin.Services
                     room.Theories.Add(new TheoryNote { Text = TrimToLimit(text, 1000), Author = userId });
                     Touch(room);
                 }
+            }
+        }
+
+        public bool RemoveTheory(string roomId, string theoryId, string userId)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room)) return false;
+                var theory = room.Theories.FirstOrDefault(t => t.Id == theoryId);
+                if (theory == null) return false;
+
+                var canManage = room.OwnerId == userId || room.CoHostIds.Contains(userId);
+                if (!canManage && theory.Author != userId) return false;
+
+                room.Theories.Remove(theory);
+                Touch(room);
+                return true;
             }
         }
 

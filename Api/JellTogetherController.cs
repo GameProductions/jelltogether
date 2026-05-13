@@ -171,6 +171,28 @@ namespace JellTogether.Plugin.Api
             return Ok(RoomForUser(room));
         }
 
+        [HttpPost("Rooms/{roomId}/Rename")]
+        public ActionResult RenameRoom(string roomId, [FromBody] string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return BadRequest("Room name is required.");
+
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManage(room)) return Forbid();
+
+            return _roomManager.RenameRoom(roomId, name) ? Ok() : BadRequest("Unable to rename room.");
+        }
+
+        [HttpDelete("Rooms/{roomId}")]
+        public ActionResult DeleteRoom(string roomId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (room.OwnerId != CurrentUserId) return Forbid();
+
+            return _roomManager.DeleteRoom(roomId) ? Ok() : NotFound();
+        }
+
         [HttpPost("Rooms/{roomId}/Join")]
         public ActionResult JoinRoom(string roomId, [FromQuery] string? code = null)
         {
@@ -191,6 +213,16 @@ namespace JellTogether.Plugin.Api
             return Ok();
         }
 
+        [HttpDelete("Rooms/{roomId}/Queue/{itemId}")]
+        public ActionResult RemoveQueueItem(string roomId, string itemId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+
+            return _roomManager.RemoveQueueItem(roomId, itemId, CurrentUserId) ? Ok() : Forbid();
+        }
+
         [HttpPost("Rooms/{roomId}/Theories")]
         public ActionResult AddTheory(string roomId, [FromBody] string text)
         {
@@ -200,6 +232,16 @@ namespace JellTogether.Plugin.Api
             if (string.IsNullOrWhiteSpace(text)) return BadRequest("Theory text is required.");
             _roomManager.AddTheory(roomId, text, CurrentUserId);
             return Ok();
+        }
+
+        [HttpDelete("Rooms/{roomId}/Theories/{theoryId}")]
+        public ActionResult RemoveTheory(string roomId, string theoryId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+
+            return _roomManager.RemoveTheory(roomId, theoryId, CurrentUserId) ? Ok() : Forbid();
         }
 
         [HttpPost("Rooms/{roomId}/Reactions")]

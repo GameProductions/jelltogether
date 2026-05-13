@@ -9,12 +9,12 @@
     "category": "Social",
     "versions": [
       {
-        "version": "1.1.8.0",
-        "changelog": "Normalize Jellyfin API room payload casing so room joins and newly-created parties resolve correctly.",
+        "version": "1.1.9.0",
+        "changelog": "Add room management controls, copyable companion links, and normalized nested room data for chat, queue, and theory board entries.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.1.8.0/jelltogether_1.1.8.0.zip",
-        "checksum": "2DBDC5194AC70CDB63DEDB1AA515C82E",
-        "timestamp": "2026-05-13T04:46:50Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.1.9.0/jelltogether_1.1.9.0.zip",
+        "checksum": "F9F917B4173363EA63552B8424A8A365",
+        "timestamp": "2026-05-13T05:32:30Z"
       }
     ]
   }

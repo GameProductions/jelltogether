@@ -58,7 +58,7 @@
                 <div class="player-placeholder">
                     <div class="player-frame">
                         <div class="play-mark"></div>
-                        <span>Jellyfin Player Sync Active</span>
+                        <span>No synced media selected</span>
                     </div>
                 </div>
 
@@ -97,11 +97,21 @@
             <div id="public-access-settings" class="admin-group" style="display: none;">
                 <div class="section-label">Public Access</div>
                 <input type="url" id="public-jellyfin-url" placeholder="Public Jellyfin URL" class="chat-input">
-                <input type="url" id="public-companion-url" placeholder="Public companion URL" class="chat-input">
+                <input type="hidden" id="public-companion-url">
+                <button type="button" id="public-companion-pill" class="copy-pill" onclick="app.copyCompanionLink()">Set a public Jellyfin URL</button>
                 <div class="split-actions">
-                    <button class="secondary-command" onclick="app.copyCompanionLink()">Copy Link</button>
                     <button class="primary-command" onclick="app.savePublicAccessSettings()">Save</button>
                 </div>
+            </div>
+
+            <div id="room-management" class="admin-group room-management" style="display: none;">
+                <div class="section-label">Room</div>
+                <div class="room-management-grid">
+                    <button class="secondary-command compact" onclick="app.renameRoom()">Rename</button>
+                    <button class="secondary-command compact" onclick="app.generateAdvancedInvite()">Invite Rules</button>
+                    <button class="danger-command compact" onclick="app.deleteRoom()">Delete</button>
+                </div>
+                <div class="room-note">Library picking and playback sync are not connected yet.</div>
             </div>
 
             <div id="participant-section" class="participant-section" style="display: none;">
@@ -148,7 +158,7 @@
                 </div>
             </div>
 
-            <div class="reaction-bar">
+            <div id="reaction-bar" class="reaction-bar" style="display: none;">
                 <button class="action-btn" onclick="app.sendReaction('🔥')">🔥</button>
                 <button class="action-btn" onclick="app.sendReaction('😂')">😂</button>
                 <button class="action-btn" onclick="app.sendReaction('😮')">😮</button>
@@ -164,7 +174,7 @@
                 <div id="poll-list" class="poll-list"></div>
             </div>
 
-            <div class="chat-container">
+            <div id="chat-container" class="chat-container" style="display: none;">
                 <div class="section-label">Chat</div>
                 <div id="chat-messages" class="chat-messages"></div>
                 <div class="chat-input-area">
@@ -192,12 +202,9 @@
             <input type="text" id="share-link-text" class="glass-input" readonly>
         </div>
         <div class="share-field-label">Public companion URL</div>
-        <div class="glass-input-container">
-            <input type="text" id="public-companion-link-text" class="glass-input" readonly>
-        </div>
+        <button type="button" id="public-companion-link-text" class="copy-pill share-copy-pill" onclick="app.copyCompanionLink()">Copy companion link</button>
         <div class="split-actions">
             <button class="primary-command" onclick="app.copyShareLink()">Copy Link</button>
-            <button class="secondary-command" onclick="app.copyCompanionLink()">Copy Companion</button>
             <button class="secondary-command" onclick="app.hideShareModal()">Close</button>
         </div>
     </div>

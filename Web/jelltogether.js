@@ -74,9 +74,10 @@ class JellTogetherApp {
         const publicAccessSettings = document.getElementById('public-access-settings');
         const jellyfinInput = document.getElementById('public-jellyfin-url');
         const companionInput = document.getElementById('public-companion-url');
-        if (publicAccessSettings) publicAccessSettings.style.display = this.canSavePublicAccessSettings ? 'block' : 'none';
+        if (publicAccessSettings) publicAccessSettings.style.display = this.canSavePublicAccessSettings ? 'grid' : 'none';
         if (jellyfinInput) jellyfinInput.value = this.publicJellyfinUrl;
         if (companionInput) companionInput.value = this.publicCompanionOrigin || this.generatedCompanionUrl();
+        this.updateCompanionPills();
     }
 
     setupEventHandlers() {
@@ -88,11 +89,9 @@ class JellTogetherApp {
         if (codeInput) codeInput.onkeypress = (e) => { if (e.key === 'Enter') this.joinByCode(); };
         if (jellyfinInput && companionInput) {
             jellyfinInput.addEventListener('input', () => {
-                const existing = companionInput.value.trim();
                 const generated = this.generatedCompanionUrl(jellyfinInput.value);
-                if (!existing || existing === this.generatedCompanionUrl(this.publicJellyfinUrl)) {
-                    companionInput.value = generated;
-                }
+                companionInput.value = generated;
+                this.updateCompanionPills(generated);
             });
         }
     }
@@ -100,6 +99,15 @@ class JellTogetherApp {
     generatedCompanionUrl(value = this.publicJellyfinUrl) {
         const base = (value || "").trim().replace(/\/+$/, '');
         return base ? `${base}/jelltogether/Companion` : "";
+    }
+
+    updateCompanionPills(value = null) {
+        const link = value || this.companionUrl();
+        const label = link || 'Set a public Jellyfin URL';
+        const settingsPill = document.getElementById('public-companion-pill');
+        const sharePill = document.getElementById('public-companion-link-text');
+        if (settingsPill) settingsPill.textContent = label;
+        if (sharePill) sharePill.textContent = label;
     }
 
     async loadCurrentUser() {
@@ -220,6 +228,48 @@ class JellTogetherApp {
         return source[nextPascal] !== undefined ? source[nextPascal] : fallback;
     }
 
+    normalizeQueueItem(item) {
+        return {
+            ...item,
+            id: this.prop(item, 'id', null, ''),
+            title: this.prop(item, 'title', null, 'Untitled item'),
+            mediaId: this.prop(item, 'mediaId', null, ''),
+            upvotes: this.prop(item, 'upvotes', null, []),
+            addedBy: this.prop(item, 'addedBy', null, 'Unknown')
+        };
+    }
+
+    normalizeTheory(note) {
+        return {
+            ...note,
+            id: this.prop(note, 'id', null, ''),
+            text: this.prop(note, 'text', null, ''),
+            author: this.prop(note, 'author', null, 'Unknown'),
+            createdAt: this.prop(note, 'createdAt', null, '')
+        };
+    }
+
+    normalizeMessage(message) {
+        return {
+            ...message,
+            userId: this.prop(message, 'userId', null, ''),
+            userName: this.prop(message, 'userName', null, 'Unknown'),
+            text: this.prop(message, 'text', null, ''),
+            timestamp: this.prop(message, 'timestamp', null, '')
+        };
+    }
+
+    normalizeInvite(invite) {
+        return {
+            ...invite,
+            code: this.prop(invite, 'code', null, ''),
+            createdBy: this.prop(invite, 'createdBy', null, ''),
+            currentUses: this.prop(invite, 'currentUses', null, 0),
+            maxUses: this.prop(invite, 'maxUses', null, 0),
+            expiresAt: this.prop(invite, 'expiresAt', null, null)
+        };
+    }
+
     normalizeRoom(room) {
         if (!room || typeof room !== 'object') return null;
 
@@ -240,10 +290,10 @@ class JellTogetherApp {
             participants: this.prop(room, 'participants', null, []),
             coHostIds: this.prop(room, 'coHostIds', null, []),
             permissions: this.prop(room, 'permissions', null, {}),
-            queue: this.prop(room, 'queue', null, []),
-            theories: this.prop(room, 'theories', null, []),
-            messages: this.prop(room, 'messages', null, []),
-            invitations: this.prop(room, 'invitations', null, []),
+            queue: this.prop(room, 'queue', null, []).map(item => this.normalizeQueueItem(item)),
+            theories: this.prop(room, 'theories', null, []).map(note => this.normalizeTheory(note)),
+            messages: this.prop(room, 'messages', null, []).map(message => this.normalizeMessage(message)),
+            invitations: this.prop(room, 'invitations', null, []).map(invite => this.normalizeInvite(invite)),
             recentReactions: this.prop(room, 'recentReactions', null, []),
             activePolls,
             cinemaSeats: this.prop(room, 'cinemaSeats', null, {}),
@@ -317,7 +367,8 @@ class JellTogetherApp {
         const actionRow = document.createElement('div');
         actionRow.className = 'split-actions';
         actions.forEach(action => {
-            actionRow.appendChild(this.button(action.label, action.primary ? 'primary-command' : 'secondary-command', () => {
+            const className = action.danger ? 'danger-command' : (action.primary ? 'primary-command' : 'secondary-command');
+            actionRow.appendChild(this.button(action.label, className, () => {
                 const result = {};
                 Object.entries(values).forEach(([id, input]) => {
                     result[id] = input.type === 'checkbox' ? input.checked : input.value;
@@ -514,13 +565,18 @@ class JellTogetherApp {
 
         document.getElementById('participant-section').style.display = 'block';
         document.getElementById('poll-section').style.display = 'block';
+        document.getElementById('reaction-bar').style.display = 'flex';
+        document.getElementById('chat-container').style.display = 'flex';
         document.getElementById('btn-new-poll').style.display = amAdmin ? 'flex' : 'none';
 
+        const roomManagement = document.getElementById('room-management');
+        if (roomManagement) roomManagement.style.display = amAdmin ? 'grid' : 'none';
+
         const themeControls = document.getElementById('host-theme-controls');
-        if (themeControls) themeControls.style.display = amAdmin ? 'block' : 'none';
+        if (themeControls) themeControls.style.display = amAdmin ? 'grid' : 'none';
 
         const discordControls = document.getElementById('host-discord-stage');
-        if (discordControls) discordControls.style.display = amOwner ? 'block' : 'none';
+        if (discordControls) discordControls.style.display = amOwner ? 'grid' : 'none';
 
         const canInvite = amAdmin || this.currentRoom.allowParticipantInvites;
         const inviteContainer = document.getElementById('invite-code-container');
@@ -582,6 +638,57 @@ class JellTogetherApp {
         }
     }
 
+    async renameRoom() {
+        if (!this.currentRoom || !this.canManage()) return;
+        this.showModal('Rename room', [
+            { id: 'name', label: 'Room name', value: this.currentRoom.name, placeholder: 'Movie night' }
+        ], [
+            { label: 'Save', primary: true, onClick: ({ name }) => this.renameRoomTo(name) }
+        ]);
+    }
+
+    async renameRoomTo(name) {
+        if (!name || !name.trim() || !this.currentRoom) return;
+        try {
+            const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Rename`, name.trim());
+            if (!resp.ok) throw new Error("Rename failed");
+            await this.refreshRoom();
+            this.showToast("Room renamed.", 'success');
+        } catch (e) {
+            console.error("Rename Room Error:", e);
+            this.showToast("Failed to rename room.", 'error');
+        }
+    }
+
+    async deleteRoom() {
+        if (!this.currentRoom || !this.isOwner()) return;
+        this.showModal('Delete room', [
+            { id: 'confirm', label: 'Type DELETE to confirm', placeholder: 'DELETE' }
+        ], [
+            { label: 'Delete', danger: true, onClick: ({ confirm }) => this.deleteRoomConfirmed(confirm) }
+        ]);
+    }
+
+    async deleteRoomConfirmed(confirm) {
+        if (!this.currentRoom || confirm !== 'DELETE') {
+            this.showToast("Room was not deleted.", 'info');
+            return;
+        }
+
+        try {
+            const resp = await this.request(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}`, { method: 'DELETE' });
+            if (!resp.ok) throw new Error("Delete failed");
+            this.currentRoom = null;
+            this.stopRoomPolling();
+            this.showView('lobby');
+            await this.loadRooms();
+            this.showToast("Room deleted.", 'success');
+        } catch (e) {
+            console.error("Delete Room Error:", e);
+            this.showToast("Failed to delete room.", 'error');
+        }
+    }
+
     async addTheory() {
         this.showModal('New theory', [
             { id: 'text', label: 'Observation', placeholder: 'What did you notice?' }
@@ -617,13 +724,31 @@ class JellTogetherApp {
         this.currentRoom.queue.forEach(item => {
             const row = document.createElement('div');
             row.className = 'queue-item';
-            row.appendChild(this.textEl('span', item.title));
-            const addedBy = this.textEl('span', `Added by ${item.addedBy}`);
-            addedBy.style.fontSize = '0.7rem';
-            addedBy.style.color = 'var(--text-dim)';
-            row.appendChild(addedBy);
+            const content = document.createElement('div');
+            content.className = 'queue-item-content';
+            content.appendChild(this.textEl('span', item.title));
+            content.appendChild(this.textEl('span', `Added by ${item.addedBy || 'Unknown'}`, 'item-meta'));
+            row.appendChild(content);
+
+            if (this.canManage() || item.addedBy === this.currentUser) {
+                row.appendChild(this.button('Remove', 'micro-command', () => this.removeQueueItem(item.id)));
+            }
+
             container.appendChild(row);
         });
+    }
+
+    async removeQueueItem(itemId) {
+        if (!this.currentRoom || !itemId) return;
+        try {
+            const resp = await this.request(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Queue/${encodeURIComponent(itemId)}`, { method: 'DELETE' });
+            if (!resp.ok) throw new Error("Queue remove failed");
+            await this.refreshRoom();
+            this.showToast("Queue item removed.", 'success');
+        } catch (e) {
+            console.error("Queue Remove Error:", e);
+            this.showToast("Failed to remove queue item.", 'error');
+        }
     }
 
     renderTheories() {
@@ -642,11 +767,30 @@ class JellTogetherApp {
         this.currentRoom.theories.forEach(note => {
             const noteEl = document.createElement('div');
             noteEl.className = 'sticky-note';
-            noteEl.appendChild(this.textEl('strong', note.author));
+            const noteHeader = document.createElement('div');
+            noteHeader.className = 'sticky-note-header';
+            noteHeader.appendChild(this.textEl('strong', note.author || 'Unknown'));
+            if (this.canManage() || note.author === this.currentUser) {
+                noteHeader.appendChild(this.button('Remove', 'micro-command dark', () => this.removeTheory(note.id)));
+            }
+            noteEl.appendChild(noteHeader);
             noteEl.appendChild(document.createElement('br'));
-            noteEl.appendChild(document.createTextNode(note.text));
+            noteEl.appendChild(document.createTextNode(note.text || ''));
             container.appendChild(noteEl);
         });
+    }
+
+    async removeTheory(theoryId) {
+        if (!this.currentRoom || !theoryId) return;
+        try {
+            const resp = await this.request(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Theories/${encodeURIComponent(theoryId)}`, { method: 'DELETE' });
+            if (!resp.ok) throw new Error("Theory remove failed");
+            await this.refreshRoom();
+            this.showToast("Theory removed.", 'success');
+        } catch (e) {
+            console.error("Theory Remove Error:", e);
+            this.showToast("Failed to remove theory.", 'error');
+        }
     }
 
     renderCinemaSeats() {
@@ -924,7 +1068,12 @@ class JellTogetherApp {
     showView(view) {
         document.getElementById('lobby-view').style.display = view === 'lobby' ? 'block' : 'none';
         document.getElementById('party-view').style.display = view === 'party' ? 'block' : 'none';
-        if (view === 'lobby') document.getElementById('participant-section').style.display = 'none';
+        if (view === 'lobby') {
+            ['participant-section', 'room-management', 'host-theme-controls', 'host-discord-stage', 'poll-section', 'reaction-bar', 'chat-container'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = 'none';
+            });
+        }
     }
 
     startLobbyPolling() {
@@ -987,7 +1136,7 @@ class JellTogetherApp {
         const link = this.companionUrl(code);
         this.renderInviteQr(link);
         document.getElementById('share-link-text').value = link;
-        document.getElementById('public-companion-link-text').value = this.companionUrl();
+        this.updateCompanionPills();
         document.getElementById('invite-code-text').textContent = code;
     }
 
@@ -1026,16 +1175,32 @@ class JellTogetherApp {
     }
 
     async copyShareLink() {
-        await navigator.clipboard.writeText(document.getElementById('share-link-text').value);
+        await this.copyText(document.getElementById('share-link-text').value, "Invite link copied.");
     }
 
     async copyCompanionLink() {
-        await navigator.clipboard.writeText(this.companionUrl());
+        const currentSetting = document.getElementById('public-companion-url')?.value?.trim();
+        await this.copyText(currentSetting || this.companionUrl(), "Companion link copied.");
+    }
+
+    async copyText(value, message) {
+        if (!value) {
+            this.showToast("Nothing to copy yet.", 'error');
+            return;
+        }
+
+        try {
+            await navigator.clipboard.writeText(value);
+            this.showToast(message, 'success');
+        } catch (e) {
+            console.error("Copy Error:", e);
+            this.showToast("Copy failed. Select the text and copy it manually.", 'error');
+        }
     }
 
     async savePublicAccessSettings() {
         const publicJellyfinUrl = document.getElementById('public-jellyfin-url')?.value?.trim() || "";
-        const publicCompanionUrl = document.getElementById('public-companion-url')?.value?.trim() || "";
+        const publicCompanionUrl = this.generatedCompanionUrl(publicJellyfinUrl);
 
         try {
             const resp = await this.request('/jelltogether/Settings', {
@@ -1053,7 +1218,7 @@ class JellTogetherApp {
     }
 
     async copyInvite() {
-        await navigator.clipboard.writeText(document.getElementById('invite-code-text').textContent);
+        await this.copyText(document.getElementById('invite-code-text').textContent, "Invite code copied.");
     }
 
     createQrSvg(text) {

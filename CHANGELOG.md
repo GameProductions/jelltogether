@@ -1,5 +1,9 @@
 # JellTogether Changelog
 
+## [2026-05-13] - Room management and companion link polish
+- Added room rename/delete controls, removable queue and theory entries, and copyable companion URL pills.
+- Normalized nested room payload data so chat, queue, and theory board entries render names and content correctly.
+
 ## [2026-02-07] - Initial project structure and boilerplate
 - Documentation updated.
 
@@ -35,4 +39,3 @@
 
 ## [2026-05-08] - Phase 12: Discord Stage Orchestrator and Performance Hardening
 - Documentation updated.
-
