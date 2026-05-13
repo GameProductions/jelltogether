@@ -12,9 +12,9 @@
         "version": "1.1.2.0",
         "changelog": "Fix public companion redirects, invite links, QR access, and Discord Stage sync handling.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://raw.githubusercontent.com/GameProductions/jelltogether/main/jelltogether_1.1.2.0.zip",
-        "checksum": "153C95936712246928E12E6B00443B5C",
-        "timestamp": "2026-05-13T01:53:20Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.1.2.0/jelltogether_1.1.2.0.zip",
+        "checksum": "60E4C131738602F0387FBB7CCDC624B2",
+        "timestamp": "2026-05-13T02:02:56Z"
       }
     ]
   }
