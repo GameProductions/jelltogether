@@ -34,24 +34,20 @@ namespace JellTogether.Plugin
                 {
                     Name = "jelltogether",
                     DisplayName = "JellTogether",
-                    EmbeddedResourcePath = WebResourcePrefix + ".jelltogether.html",
-                    EnableInMainMenu = true,
-                    MenuSection = "server",
-                    MenuIcon = "movie"
-                },
-                new PluginPageInfo
-                {
-                    Name = "jelltogether-companion",
-                    DisplayName = "JellTogether",
-                    EmbeddedResourcePath = WebResourcePrefix + ".jelltogether.html",
+                    EmbeddedResourcePath = WebResourcePrefix + ".jelltogether-settings.html",
                     EnableInMainMenu = true,
                     MenuSection = "home",
-                    MenuIcon = "movie"
+                    MenuIcon = "settings"
                 },
                 new PluginPageInfo
                 {
                     Name = "jelltogether.css",
                     EmbeddedResourcePath = WebResourcePrefix + ".jelltogether.css"
+                },
+                new PluginPageInfo
+                {
+                    Name = "jelltogether-settings.js",
+                    EmbeddedResourcePath = WebResourcePrefix + ".jelltogether-settings.js"
                 },
                 new PluginPageInfo
                 {

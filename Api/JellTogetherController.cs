@@ -1,7 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
 using System.Security.Claims;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Controller.Session;
+using MediaBrowser.Model.Session;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
@@ -35,11 +42,65 @@ namespace JellTogether.Plugin.Api
         public string PublicCompanionUrl { get; set; } = string.Empty;
     }
 
+    public class GlobalSettingsRequest
+    {
+        public string PublicJellyfinUrl { get; set; } = string.Empty;
+        public string PublicCompanionUrl { get; set; } = string.Empty;
+        public List<string> EnabledLibraryIds { get; set; } = new();
+        public bool AllowQueueVotingByDefault { get; set; } = true;
+        public bool AllowParticipantQueueAdds { get; set; } = true;
+        public bool AllowParticipantInvitesByDefault { get; set; } = true;
+        public bool PersistRoomHistory { get; set; } = true;
+        public int DefaultInviteExpirationHours { get; set; } = 24;
+    }
+
+    public class QueueItemRequest
+    {
+        public string Title { get; set; } = string.Empty;
+        public string MediaId { get; set; } = string.Empty;
+        public string LibraryId { get; set; } = string.Empty;
+        public string MediaType { get; set; } = string.Empty;
+        public string Overview { get; set; } = string.Empty;
+    }
+
+    public class ChatMessageRequest
+    {
+        public string Text { get; set; } = string.Empty;
+        public string ReplyToMessageId { get; set; } = string.Empty;
+    }
+
+    public class StartWatchPartyRequest
+    {
+        public List<string> TargetSessionIds { get; set; } = new();
+    }
+
+    public class PlaybackTargetDto
+    {
+        public string SessionId { get; set; } = string.Empty;
+        public string UserId { get; set; } = string.Empty;
+        public string UserName { get; set; } = string.Empty;
+        public string Client { get; set; } = string.Empty;
+        public string DeviceName { get; set; } = string.Empty;
+        public bool IsActive { get; set; }
+        public bool SupportsRemoteControl { get; set; }
+        public bool SupportsMediaControl { get; set; }
+        public bool IsCurrentUser { get; set; }
+    }
+
+    public class StartWatchPartyResult
+    {
+        public string Title { get; set; } = string.Empty;
+        public int StartedCount { get; set; }
+        public int EligibleCount { get; set; }
+        public List<string> FailedSessionIds { get; set; } = new();
+    }
+
     [ApiController]
     [Route("jelltogether")]
     [Authorize]
     public class JellTogetherController : ControllerBase
     {
+        private readonly ISessionManager _sessionManager;
         private RoomManager _roomManager => Plugin.Instance?.RoomManager ?? throw new System.Exception("Plugin not initialized");
         private string CurrentUserId =>
             User.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
@@ -48,25 +109,30 @@ namespace JellTogether.Plugin.Api
             User.Identity?.Name ??
             "Unknown";
 
+        public JellTogetherController(ISessionManager sessionManager)
+        {
+            _sessionManager = sessionManager;
+        }
+
         [HttpGet]
         [AllowAnonymous]
         public IActionResult Open()
         {
-            return Redirect(CompanionPageUrl());
+            return Redirect(CompanionUrl());
         }
 
         [HttpGet("Companion")]
         [AllowAnonymous]
         public IActionResult OpenCompanion([FromQuery] string? code = null)
         {
-            return Redirect(CompanionPageUrl(code));
+            return StandaloneCompanion(code);
         }
 
         [HttpGet("Invite/{code}")]
         [AllowAnonymous]
         public IActionResult OpenInvite(string code)
         {
-            return Redirect(CompanionPageUrl(code));
+            return Redirect(CompanionUrl(code));
         }
 
         [HttpGet("CurrentUser")]
@@ -83,6 +149,12 @@ namespace JellTogether.Plugin.Api
             {
                 publicJellyfinUrl = NormalizeBaseUrl(config?.PublicJellyfinUrl),
                 publicCompanionUrl = NormalizeBaseUrl(config?.PublicCompanionUrl),
+                enabledLibraryIds = config?.EnabledLibraryIds ?? new List<string>(),
+                allowQueueVotingByDefault = config?.AllowQueueVotingByDefault ?? true,
+                allowParticipantQueueAdds = config?.AllowParticipantQueueAdds ?? true,
+                allowParticipantInvitesByDefault = config?.AllowParticipantInvitesByDefault ?? true,
+                persistRoomHistory = config?.PersistRoomHistory ?? true,
+                defaultInviteExpirationHours = config?.DefaultInviteExpirationHours ?? 24,
                 canSavePublicAccessSettings = IsElevatedUser()
             });
         }
@@ -95,6 +167,10 @@ namespace JellTogether.Plugin.Api
 
             var publicJellyfinUrl = NormalizeBaseUrl(request.PublicJellyfinUrl);
             var publicCompanionUrl = NormalizeBaseUrl(request.PublicCompanionUrl);
+            if (string.IsNullOrEmpty(publicCompanionUrl) && !string.IsNullOrEmpty(publicJellyfinUrl))
+            {
+                publicCompanionUrl = $"{publicJellyfinUrl}/jelltogether/Companion";
+            }
 
             if (!IsValidPublicUrl(publicJellyfinUrl)) return BadRequest("Public Jellyfin URL must be a valid HTTPS URL, or HTTP for localhost/private network testing.");
             if (!IsValidPublicUrl(publicCompanionUrl)) return BadRequest("Public companion URL must be a valid HTTPS URL, or HTTP for localhost/private network testing.");
@@ -105,6 +181,60 @@ namespace JellTogether.Plugin.Api
             var config = plugin.Configuration;
             config.PublicJellyfinUrl = publicJellyfinUrl;
             config.PublicCompanionUrl = publicCompanionUrl;
+            plugin.SaveConfiguration(config);
+            return Ok();
+        }
+
+        [HttpGet("GlobalSettings")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        public ActionResult<object> GetGlobalSettings()
+        {
+            var config = Plugin.Instance?.Configuration;
+            return Ok(new
+            {
+                publicJellyfinUrl = NormalizeBaseUrl(config?.PublicJellyfinUrl),
+                publicCompanionUrl = NormalizeBaseUrl(config?.PublicCompanionUrl),
+                enabledLibraryIds = config?.EnabledLibraryIds ?? new List<string>(),
+                allowQueueVotingByDefault = config?.AllowQueueVotingByDefault ?? true,
+                allowParticipantQueueAdds = config?.AllowParticipantQueueAdds ?? true,
+                allowParticipantInvitesByDefault = config?.AllowParticipantInvitesByDefault ?? true,
+                persistRoomHistory = config?.PersistRoomHistory ?? true,
+                defaultInviteExpirationHours = config?.DefaultInviteExpirationHours ?? 24
+            });
+        }
+
+        [HttpPost("GlobalSettings")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        public ActionResult SaveGlobalSettings([FromBody] GlobalSettingsRequest request)
+        {
+            if (request == null) return BadRequest("Settings payload is required.");
+
+            var publicJellyfinUrl = NormalizeBaseUrl(request.PublicJellyfinUrl);
+            var publicCompanionUrl = NormalizeBaseUrl(request.PublicCompanionUrl);
+            if (string.IsNullOrEmpty(publicCompanionUrl) && !string.IsNullOrEmpty(publicJellyfinUrl))
+            {
+                publicCompanionUrl = $"{publicJellyfinUrl}/jelltogether/Companion";
+            }
+
+            if (!IsValidPublicUrl(publicJellyfinUrl)) return BadRequest("Public Jellyfin URL must be a valid HTTPS URL, or HTTP for localhost/private network testing.");
+            if (!IsValidPublicUrl(publicCompanionUrl)) return BadRequest("Public companion URL must be a valid HTTPS URL, or HTTP for localhost/private network testing.");
+
+            var plugin = Plugin.Instance;
+            if (plugin == null) return StatusCode(500, "Plugin not initialized.");
+
+            var config = plugin.Configuration;
+            config.PublicJellyfinUrl = publicJellyfinUrl;
+            config.PublicCompanionUrl = publicCompanionUrl;
+            config.EnabledLibraryIds = request.EnabledLibraryIds
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            config.AllowQueueVotingByDefault = request.AllowQueueVotingByDefault;
+            config.AllowParticipantQueueAdds = request.AllowParticipantQueueAdds;
+            config.AllowParticipantInvitesByDefault = request.AllowParticipantInvitesByDefault;
+            config.PersistRoomHistory = request.PersistRoomHistory;
+            config.DefaultInviteExpirationHours = Math.Clamp(request.DefaultInviteExpirationHours, 0, 24 * 30);
             plugin.SaveConfiguration(config);
             return Ok();
         }
@@ -165,24 +295,166 @@ namespace JellTogether.Plugin.Api
             return Ok(RoomForUser(room));
         }
 
+        [HttpPost("Rooms/{roomId}/Rename")]
+        public ActionResult RenameRoom(string roomId, [FromBody] string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return BadRequest("Room name is required.");
+
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManage(room)) return Forbid();
+
+            return _roomManager.RenameRoom(roomId, name) ? Ok() : BadRequest("Unable to rename room.");
+        }
+
+        [HttpDelete("Rooms/{roomId}")]
+        public ActionResult DeleteRoom(string roomId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (room.OwnerId != CurrentUserId) return Forbid();
+
+            return _roomManager.DeleteRoom(roomId) ? Ok() : NotFound();
+        }
+
         [HttpPost("Rooms/{roomId}/Join")]
         public ActionResult JoinRoom(string roomId, [FromQuery] string? code = null)
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
-            if (!_roomManager.JoinRoom(roomId, CurrentUserId, code)) return Forbid();
-            return Ok();
+            var result = _roomManager.JoinRoom(roomId, CurrentUserId, code);
+            return result switch
+            {
+                JoinRoomResult.Joined => Ok(new { status = "joined" }),
+                JoinRoomResult.PendingApproval => Accepted(new { status = "pending" }),
+                JoinRoomResult.Locked => StatusCode(423, "Room joining is locked."),
+                JoinRoomResult.Banned => Forbid(),
+                JoinRoomResult.Forbidden => Forbid(),
+                JoinRoomResult.NotFound => NotFound(),
+                _ => Forbid()
+            };
         }
 
         [HttpPost("Rooms/{roomId}/Queue")]
-        public ActionResult AddToQueue(string roomId, [FromBody] string title)
+        public ActionResult AddToQueue(string roomId, [FromBody] JsonElement payload)
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
             if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+            if (!CanManage(room) && Plugin.Instance?.Configuration.AllowParticipantQueueAdds == false) return Forbid();
+
+            var request = ParseQueueItemRequest(payload);
+            var allowedLibraryIds = Plugin.Instance?.Configuration.EnabledLibraryIds ?? new List<string>();
+            if (!string.IsNullOrWhiteSpace(request.LibraryId) &&
+                allowedLibraryIds.Count > 0 &&
+                !allowedLibraryIds.Contains(request.LibraryId, StringComparer.OrdinalIgnoreCase))
+            {
+                return Forbid();
+            }
+
+            var title = request.Title;
             if (string.IsNullOrWhiteSpace(title)) return BadRequest("Queue title is required.");
-            _roomManager.AddToQueue(roomId, title, CurrentUserId);
+            _roomManager.AddToQueue(roomId, title, CurrentUserId, request.MediaId, request.LibraryId, request.MediaType, request.Overview);
             return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Queue/{itemId}/Vote")]
+        public ActionResult ToggleQueueVote(string roomId, string itemId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+
+            return _roomManager.ToggleQueueVote(roomId, itemId, CurrentUserId) ? Ok() : Forbid();
+        }
+
+        [HttpPost("Rooms/{roomId}/Queue/{itemId}/Move")]
+        public ActionResult MoveQueueItem(string roomId, string itemId, [FromBody] int direction)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManage(room)) return Forbid();
+
+            return _roomManager.MoveQueueItem(roomId, itemId, direction, CurrentUserId) ? Ok() : BadRequest("Unable to move queue item.");
+        }
+
+        [HttpDelete("Rooms/{roomId}/Queue/{itemId}")]
+        public ActionResult RemoveQueueItem(string roomId, string itemId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+
+            return _roomManager.RemoveQueueItem(roomId, itemId, CurrentUserId) ? Ok() : Forbid();
+        }
+
+        [HttpGet("Rooms/{roomId}/PlaybackTargets")]
+        public ActionResult<List<PlaybackTargetDto>> GetPlaybackTargets(string roomId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanView(room)) return Forbid();
+
+            return Ok(PlaybackTargetsForRoom(room));
+        }
+
+        [HttpPost("Rooms/{roomId}/Queue/{itemId}/Start")]
+        public async Task<ActionResult<StartWatchPartyResult>> StartWatchParty(string roomId, string itemId, [FromBody] StartWatchPartyRequest? request, CancellationToken cancellationToken)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManage(room)) return Forbid();
+
+            var item = room.Queue.FirstOrDefault(queueItem => queueItem.Id == itemId);
+            if (item == null) return NotFound();
+            if (!Guid.TryParse(item.MediaId, out var mediaId)) return BadRequest("Queue item is not linked to a playable Jellyfin item.");
+
+            var targets = PlaybackTargetsForRoom(room)
+                .Where(target => target.IsActive && target.SupportsRemoteControl && target.SupportsMediaControl)
+                .ToList();
+
+            var requestedSessionIds = request?.TargetSessionIds?.Where(id => !string.IsNullOrWhiteSpace(id)).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? new();
+            if (requestedSessionIds.Count > 0)
+            {
+                targets = targets.Where(target => requestedSessionIds.Contains(target.SessionId)).ToList();
+            }
+
+            if (targets.Count == 0) return BadRequest("No active controllable Jellyfin sessions are available for this room.");
+
+            var controllingSessionId = ControllerSessionId();
+            var controllingUserId = ControllerUserGuid();
+            var playRequest = new PlayRequest
+            {
+                ItemIds = new[] { mediaId },
+                PlayCommand = PlayCommand.PlayNow,
+                ControllingUserId = controllingUserId
+            };
+
+            var failed = new List<string>();
+            foreach (var target in targets)
+            {
+                try
+                {
+                    await _sessionManager.SendPlayCommand(controllingSessionId, target.SessionId, playRequest, cancellationToken).ConfigureAwait(false);
+                }
+                catch
+                {
+                    failed.Add(target.SessionId);
+                }
+            }
+
+            if (failed.Count < targets.Count)
+            {
+                _roomManager.MarkNowPlaying(roomId, item);
+            }
+
+            return Ok(new StartWatchPartyResult
+            {
+                Title = item.Title,
+                EligibleCount = targets.Count,
+                StartedCount = targets.Count - failed.Count,
+                FailedSessionIds = failed
+            });
         }
 
         [HttpPost("Rooms/{roomId}/Theories")]
@@ -194,6 +466,16 @@ namespace JellTogether.Plugin.Api
             if (string.IsNullOrWhiteSpace(text)) return BadRequest("Theory text is required.");
             _roomManager.AddTheory(roomId, text, CurrentUserId);
             return Ok();
+        }
+
+        [HttpDelete("Rooms/{roomId}/Theories/{theoryId}")]
+        public ActionResult RemoveTheory(string roomId, string theoryId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+
+            return _roomManager.RemoveTheory(roomId, theoryId, CurrentUserId) ? Ok() : Forbid();
         }
 
         [HttpPost("Rooms/{roomId}/Reactions")]
@@ -252,11 +534,54 @@ namespace JellTogether.Plugin.Api
             return Ok();
         }
 
+        [HttpPost("Rooms/{roomId}/ToggleJoinApproval")]
+        public ActionResult ToggleJoinApproval(string roomId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManageParticipants(room)) return Forbid();
+
+            _roomManager.ToggleJoinApproval(roomId);
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/ToggleJoinLock")]
+        public ActionResult ToggleJoinLock(string roomId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManageParticipants(room)) return Forbid();
+
+            _roomManager.ToggleJoinLock(roomId);
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/ToggleQueueVoting")]
+        public ActionResult ToggleQueueVoting(string roomId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (room.OwnerId != CurrentUserId) return Forbid();
+
+            _roomManager.ToggleQueueVoting(roomId);
+            return Ok();
+        }
+
         [HttpPost("Rooms/{roomId}/Leave")]
         public ActionResult LeaveRoom(string roomId)
         {
             _roomManager.LeaveRoom(roomId, CurrentUserId);
             return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Seats/{seatIndex:int}")]
+        public ActionResult MoveSeat(string roomId, int seatIndex)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+
+            return _roomManager.MoveSeat(roomId, CurrentUserId, seatIndex) ? Ok() : BadRequest("Seat is not available.");
         }
 
         [HttpGet("Rooms/{roomId}/Updates")]
@@ -289,8 +614,53 @@ namespace JellTogether.Plugin.Api
                 return Forbid();
             }
 
-            _roomManager.SetUserPermissions(roomId, userId, permissions.CanChat, permissions.CanControlPlayback);
+            _roomManager.SetUserPermissions(roomId, userId, permissions.CanChat, permissions.CanControlPlayback, permissions.CanAddToQueue, permissions.CanManageParticipants);
             return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Participants/{userId}/Approve")]
+        public ActionResult ApproveJoin(string roomId, string userId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManageParticipants(room)) return Forbid();
+            return _roomManager.ApproveJoin(roomId, userId) ? Ok() : BadRequest("Unable to approve participant.");
+        }
+
+        [HttpPost("Rooms/{roomId}/Participants/{userId}/Reject")]
+        public ActionResult RejectJoin(string roomId, string userId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManageParticipants(room)) return Forbid();
+            return _roomManager.RejectJoin(roomId, userId) ? Ok() : BadRequest("Unable to reject participant.");
+        }
+
+        [HttpPost("Rooms/{roomId}/Participants/{userId}/Kick")]
+        public ActionResult KickParticipant(string roomId, string userId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManageParticipants(room)) return Forbid();
+            return _roomManager.KickParticipant(roomId, userId) ? Ok() : BadRequest("Unable to remove participant.");
+        }
+
+        [HttpPost("Rooms/{roomId}/Participants/{userId}/Ban")]
+        public ActionResult BanParticipant(string roomId, string userId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManageParticipants(room)) return Forbid();
+            return _roomManager.BanParticipant(roomId, userId) ? Ok() : BadRequest("Unable to ban participant.");
+        }
+
+        [HttpPost("Rooms/{roomId}/Participants/{userId}/Unban")]
+        public ActionResult UnbanParticipant(string roomId, string userId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManageParticipants(room)) return Forbid();
+            return _roomManager.UnbanParticipant(roomId, userId) ? Ok() : BadRequest("Unable to unban participant.");
         }
 
         [HttpPost("Rooms/{roomId}/Participants/{userId}/Promote")]
@@ -411,23 +781,45 @@ namespace JellTogether.Plugin.Api
         }
 
         [HttpPost("Rooms/{roomId}/Messages")]
-        public ActionResult AddMessage(string roomId, [FromBody] string text)
+        public ActionResult AddMessage(string roomId, [FromBody] JsonElement payload)
         {
+            var request = ParseChatMessageRequest(payload);
+            var text = request.Text;
             if (string.IsNullOrWhiteSpace(text)) return BadRequest("Message text is required.");
 
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
             if (!room.Participants.Contains(CurrentUserId)) return Forbid();
 
+            var replyTo = string.IsNullOrWhiteSpace(request.ReplyToMessageId)
+                ? null
+                : room.Messages.FirstOrDefault(m => m.Id == request.ReplyToMessageId);
+
             var message = new ChatMessage
             {
                 UserId = CurrentUserId,
                 UserName = CurrentUserId,
-                Text = text
+                Text = text,
+                ReplyToMessageId = replyTo?.Id ?? string.Empty,
+                ReplyToUserName = replyTo?.UserName ?? string.Empty,
+                ReplyToText = TrimToLimit(replyTo?.Text ?? string.Empty, 140),
+                Mentions = ExtractMentions(text, room.Participants)
             };
 
             if (!_roomManager.AddMessage(roomId, message)) return Forbid();
             return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Messages/{messageId}/Reactions")]
+        public ActionResult ToggleMessageReaction(string roomId, string messageId, [FromBody] string emoji)
+        {
+            if (string.IsNullOrWhiteSpace(emoji)) return BadRequest("Reaction is required.");
+
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+
+            return _roomManager.ToggleMessageReaction(roomId, messageId, CurrentUserId, emoji) ? Ok() : BadRequest("Unable to update reaction.");
         }
         [HttpGet("Rooms/{roomId}/Recap")]
         public ActionResult<RoomStats> GetRecap(string roomId)
@@ -479,6 +871,13 @@ namespace JellTogether.Plugin.Api
             return room.OwnerId == CurrentUserId || room.CoHostIds.Contains(CurrentUserId);
         }
 
+        private bool CanManageParticipants(JellTogetherRoom room)
+        {
+            if (CanManage(room)) return true;
+            return room.Permissions.TryGetValue(CurrentUserId, out var permissions) &&
+                permissions.CanManageParticipants;
+        }
+
         private JellTogetherRoom RoomForUser(JellTogetherRoom room)
         {
             room.DiscordBotToken = null;
@@ -492,7 +891,153 @@ namespace JellTogether.Plugin.Api
             return room;
         }
 
-        private string CompanionPageUrl(string? code = null)
+        private List<PlaybackTargetDto> PlaybackTargetsForRoom(JellTogetherRoom room)
+        {
+            return _sessionManager.Sessions
+                .Where(session => SessionBelongsToRoomParticipant(session, room))
+                .Select(session => new PlaybackTargetDto
+                {
+                    SessionId = session.Id,
+                    UserId = session.UserId.ToString("D"),
+                    UserName = session.UserName,
+                    Client = session.Client,
+                    DeviceName = session.DeviceName,
+                    IsActive = session.IsActive,
+                    SupportsRemoteControl = session.SupportsRemoteControl,
+                    SupportsMediaControl = session.SupportsMediaControl,
+                    IsCurrentUser = SessionMatchesCurrentUser(session)
+                })
+                .OrderByDescending(target => target.IsCurrentUser)
+                .ThenBy(target => target.UserName)
+                .ThenBy(target => target.DeviceName)
+                .ToList();
+        }
+
+        private bool SessionBelongsToRoomParticipant(SessionInfo session, JellTogetherRoom room)
+        {
+            return room.Participants.Any(participant => SessionMatchesUser(session, participant));
+        }
+
+        private bool SessionMatchesCurrentUser(SessionInfo session)
+        {
+            return SessionMatchesUser(session, CurrentUserId);
+        }
+
+        private static bool SessionMatchesUser(SessionInfo session, string userId)
+        {
+            if (string.IsNullOrWhiteSpace(userId)) return false;
+            return session.UserName.Equals(userId, StringComparison.OrdinalIgnoreCase) ||
+                session.UserId.ToString("D").Equals(userId, StringComparison.OrdinalIgnoreCase) ||
+                session.UserId.ToString("N").Equals(userId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private string ControllerSessionId()
+        {
+            return _sessionManager.Sessions.FirstOrDefault(SessionMatchesCurrentUser)?.Id ?? string.Empty;
+        }
+
+        private Guid ControllerUserGuid()
+        {
+            var session = _sessionManager.Sessions.FirstOrDefault(SessionMatchesCurrentUser);
+            if (session != null) return session.UserId;
+            if (Guid.TryParse(CurrentUserId, out var userId)) return userId;
+            return Guid.Empty;
+        }
+
+        private static QueueItemRequest ParseQueueItemRequest(JsonElement payload)
+        {
+            if (payload.ValueKind == JsonValueKind.String)
+            {
+                return new QueueItemRequest { Title = payload.GetString() ?? string.Empty };
+            }
+
+            if (payload.ValueKind != JsonValueKind.Object) return new QueueItemRequest();
+
+            return new QueueItemRequest
+            {
+                Title = GetJsonString(payload, "title") ?? GetJsonString(payload, "Title") ?? string.Empty,
+                MediaId = GetJsonString(payload, "mediaId") ?? GetJsonString(payload, "MediaId") ?? string.Empty,
+                LibraryId = GetJsonString(payload, "libraryId") ?? GetJsonString(payload, "LibraryId") ?? string.Empty,
+                MediaType = GetJsonString(payload, "mediaType") ?? GetJsonString(payload, "MediaType") ?? string.Empty,
+                Overview = GetJsonString(payload, "overview") ?? GetJsonString(payload, "Overview") ?? string.Empty
+            };
+        }
+
+        private static ChatMessageRequest ParseChatMessageRequest(JsonElement payload)
+        {
+            if (payload.ValueKind == JsonValueKind.String)
+            {
+                return new ChatMessageRequest { Text = payload.GetString() ?? string.Empty };
+            }
+
+            if (payload.ValueKind != JsonValueKind.Object) return new ChatMessageRequest();
+
+            return new ChatMessageRequest
+            {
+                Text = GetJsonString(payload, "text") ?? GetJsonString(payload, "Text") ?? string.Empty,
+                ReplyToMessageId = GetJsonString(payload, "replyToMessageId") ?? GetJsonString(payload, "ReplyToMessageId") ?? string.Empty
+            };
+        }
+
+        private static List<string> ExtractMentions(string text, IEnumerable<string> participants)
+        {
+            var tokens = Regex.Matches(text, @"@([\w.\-]+)")
+                .Select(match => match.Groups[1].Value)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            return participants
+                .Where(participant => tokens.Contains(participant) || tokens.Contains(participant.Split('@')[0]))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static string TrimToLimit(string value, int limit)
+        {
+            value = value?.Trim() ?? string.Empty;
+            return value.Length <= limit ? value : value[..limit];
+        }
+
+        private static string? GetJsonString(JsonElement payload, string propertyName)
+        {
+            return payload.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : null;
+        }
+
+        private IActionResult StandaloneCompanion(string? code = null)
+        {
+            var assembly = Assembly.GetExecutingAssembly();
+            using var stream = assembly.GetManifestResourceStream("JellTogether.Web.jelltogether.html");
+            if (stream == null) return NotFound("JellTogether companion page was not found.");
+
+            using var reader = new StreamReader(stream);
+            var fragment = reader.ReadToEnd();
+            var basePath = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
+            var resourceBase = $"{basePath}/web/configurationpage?name=";
+            fragment = fragment.Replace("configurationpage?name=", resourceBase, StringComparison.Ordinal);
+
+            var queryScript = string.IsNullOrWhiteSpace(code)
+                ? string.Empty
+                : $"<script>window.JELL_TOGETHER_INVITE_CODE = {System.Text.Json.JsonSerializer.Serialize(code.Trim())};</script>";
+
+            var html = $@"<!DOCTYPE html>
+<html lang=""en"">
+<head>
+    <meta charset=""UTF-8"">
+    <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
+    <title>JellTogether | Jellyfin Watch Party Companion</title>
+</head>
+<body class=""jelltogether-standalone"">
+{queryScript}
+{fragment}
+</body>
+</html>";
+
+            return Content(html, "text/html");
+        }
+
+        private string CompanionUrl(string? code = null)
         {
             var configuredCompanion = NormalizeBaseUrl(Plugin.Instance?.Configuration.PublicCompanionUrl);
             if (!string.IsNullOrEmpty(configuredCompanion))
@@ -507,8 +1052,7 @@ namespace JellTogether.Plugin.Api
             }
 
             var basePath = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
-            var query = string.IsNullOrWhiteSpace(code) ? string.Empty : $"?code={Uri.EscapeDataString(code.Trim())}";
-            return $"{basePath}/web/{query}#/configurationpage?name=jelltogether";
+            return AddInviteCode($"{basePath}/jelltogether/Companion", code);
         }
 
         private static string NormalizeBaseUrl(string? value)
@@ -537,10 +1081,9 @@ namespace JellTogether.Plugin.Api
                 return AddInviteCode(configuredCompanion, code);
             }
 
-            if (uri.AbsolutePath.Equals("/jelltogether/Companion", StringComparison.OrdinalIgnoreCase) ||
-                uri.AbsolutePath.StartsWith("/jelltogether/Invite/", StringComparison.OrdinalIgnoreCase))
+            if (uri.AbsolutePath.StartsWith("/jelltogether/Invite/", StringComparison.OrdinalIgnoreCase))
             {
-                return WebConfigurationPageUrl(uri.GetLeftPart(UriPartial.Authority), code);
+                return AddInviteCode($"{uri.GetLeftPart(UriPartial.Authority)}/jelltogether/Companion", code);
             }
 
             return AddInviteCode(configuredCompanion, code);
@@ -548,8 +1091,7 @@ namespace JellTogether.Plugin.Api
 
         private static string WebConfigurationPageUrl(string baseUrl, string? code)
         {
-            var query = string.IsNullOrWhiteSpace(code) ? string.Empty : $"?code={Uri.EscapeDataString(code.Trim())}";
-            return $"{NormalizeBaseUrl(baseUrl)}/web/{query}#/configurationpage?name=jelltogether";
+            return AddInviteCode($"{NormalizeBaseUrl(baseUrl)}/jelltogether/Companion", code);
         }
 
         private static bool IsLocalOrPrivateHost(string host)

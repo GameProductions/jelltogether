@@ -9,12 +9,12 @@
     "category": "Social",
     "versions": [
       {
-        "version": "1.1.6.0",
-        "changelog": "Send Jellyfin web access tokens with companion API requests to prevent unauthorized plugin calls.",
+        "version": "1.2.7.0",
+        "changelog": "Add room moderation controls, join approval, join locking, bans, and delegated participant management.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.1.6.0/jelltogether_1.1.6.0.zip",
-        "checksum": "CF3E7FCAF61EDAD40199437FF436609E",
-        "timestamp": "2026-05-13T02:36:35Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.7.0/jelltogether_1.2.7.0.zip",
+        "checksum": "D21B3BAF3B0368EF0152183A8647D1AA",
+        "timestamp": "2026-05-13T17:34:23Z"
       }
     ]
   }
