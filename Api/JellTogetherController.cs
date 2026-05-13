@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
 using System.Security.Claims;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
@@ -52,21 +54,21 @@ namespace JellTogether.Plugin.Api
         [AllowAnonymous]
         public IActionResult Open()
         {
-            return Redirect(CompanionPageUrl());
+            return Redirect(CompanionUrl());
         }
 
         [HttpGet("Companion")]
         [AllowAnonymous]
         public IActionResult OpenCompanion([FromQuery] string? code = null)
         {
-            return Redirect(CompanionPageUrl(code));
+            return StandaloneCompanion(code);
         }
 
         [HttpGet("Invite/{code}")]
         [AllowAnonymous]
         public IActionResult OpenInvite(string code)
         {
-            return Redirect(CompanionPageUrl(code));
+            return Redirect(CompanionUrl(code));
         }
 
         [HttpGet("CurrentUser")]
@@ -95,6 +97,10 @@ namespace JellTogether.Plugin.Api
 
             var publicJellyfinUrl = NormalizeBaseUrl(request.PublicJellyfinUrl);
             var publicCompanionUrl = NormalizeBaseUrl(request.PublicCompanionUrl);
+            if (string.IsNullOrEmpty(publicCompanionUrl) && !string.IsNullOrEmpty(publicJellyfinUrl))
+            {
+                publicCompanionUrl = $"{publicJellyfinUrl}/jelltogether/Companion";
+            }
 
             if (!IsValidPublicUrl(publicJellyfinUrl)) return BadRequest("Public Jellyfin URL must be a valid HTTPS URL, or HTTP for localhost/private network testing.");
             if (!IsValidPublicUrl(publicCompanionUrl)) return BadRequest("Public companion URL must be a valid HTTPS URL, or HTTP for localhost/private network testing.");
@@ -492,7 +498,39 @@ namespace JellTogether.Plugin.Api
             return room;
         }
 
-        private string CompanionPageUrl(string? code = null)
+        private IActionResult StandaloneCompanion(string? code = null)
+        {
+            var assembly = Assembly.GetExecutingAssembly();
+            using var stream = assembly.GetManifestResourceStream("JellTogether.Web.jelltogether.html");
+            if (stream == null) return NotFound("JellTogether companion page was not found.");
+
+            using var reader = new StreamReader(stream);
+            var fragment = reader.ReadToEnd();
+            var basePath = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
+            var resourceBase = $"{basePath}/web/configurationpage?name=";
+            fragment = fragment.Replace("configurationpage?name=", resourceBase, StringComparison.Ordinal);
+
+            var queryScript = string.IsNullOrWhiteSpace(code)
+                ? string.Empty
+                : $"<script>window.JELL_TOGETHER_INVITE_CODE = {System.Text.Json.JsonSerializer.Serialize(code.Trim())};</script>";
+
+            var html = $@"<!DOCTYPE html>
+<html lang=""en"">
+<head>
+    <meta charset=""UTF-8"">
+    <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
+    <title>JellTogether | Jellyfin Watch Party Companion</title>
+</head>
+<body class=""jelltogether-standalone"">
+{queryScript}
+{fragment}
+</body>
+</html>";
+
+            return Content(html, "text/html");
+        }
+
+        private string CompanionUrl(string? code = null)
         {
             var configuredCompanion = NormalizeBaseUrl(Plugin.Instance?.Configuration.PublicCompanionUrl);
             if (!string.IsNullOrEmpty(configuredCompanion))
@@ -507,8 +545,7 @@ namespace JellTogether.Plugin.Api
             }
 
             var basePath = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
-            var query = string.IsNullOrWhiteSpace(code) ? string.Empty : $"?code={Uri.EscapeDataString(code.Trim())}";
-            return $"{basePath}/web/{query}#/configurationpage?name=jelltogether";
+            return AddInviteCode($"{basePath}/jelltogether/Companion", code);
         }
 
         private static string NormalizeBaseUrl(string? value)
@@ -537,10 +574,9 @@ namespace JellTogether.Plugin.Api
                 return AddInviteCode(configuredCompanion, code);
             }
 
-            if (uri.AbsolutePath.Equals("/jelltogether/Companion", StringComparison.OrdinalIgnoreCase) ||
-                uri.AbsolutePath.StartsWith("/jelltogether/Invite/", StringComparison.OrdinalIgnoreCase))
+            if (uri.AbsolutePath.StartsWith("/jelltogether/Invite/", StringComparison.OrdinalIgnoreCase))
             {
-                return WebConfigurationPageUrl(uri.GetLeftPart(UriPartial.Authority), code);
+                return AddInviteCode($"{uri.GetLeftPart(UriPartial.Authority)}/jelltogether/Companion", code);
             }
 
             return AddInviteCode(configuredCompanion, code);

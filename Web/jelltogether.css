@@ -892,6 +892,88 @@ h1 {
     background: rgba(0, 0, 0, 0.74);
 }
 
+.app-modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: rgba(0, 0, 0, 0.72);
+    backdrop-filter: blur(10px);
+}
+
+.app-modal {
+    width: min(92vw, 480px);
+    padding: 26px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background: rgba(8, 12, 26, 0.96);
+    box-shadow: var(--shadow-soft);
+}
+
+.app-modal h3 {
+    margin: 0 0 18px;
+}
+
+.modal-field {
+    width: 100%;
+    margin: 12px 0;
+    display: grid;
+    gap: 8px;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    font-weight: 700;
+    text-align: left;
+}
+
+.modal-field.toggle-row {
+    width: auto;
+    margin: 14px 0;
+    display: flex;
+    justify-content: flex-start;
+}
+
+#toast-stack {
+    position: fixed;
+    right: 22px;
+    bottom: 22px;
+    z-index: 1300;
+    display: grid;
+    gap: 10px;
+    width: min(360px, calc(100vw - 44px));
+}
+
+.toast {
+    padding: 14px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    color: var(--text-main);
+    background: rgba(8, 12, 26, 0.96);
+    box-shadow: var(--shadow-card);
+}
+
+.toast-success {
+    border-color: rgba(94, 234, 212, 0.46);
+}
+
+.toast-error {
+    border-color: rgba(255, 111, 177, 0.54);
+}
+
+.toast button {
+    padding: 8px 10px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    color: var(--text-main);
+    background: rgba(255, 255, 255, 0.08);
+    cursor: pointer;
+}
+
 .buffering-overlay {
     position: absolute;
     top: 50%;

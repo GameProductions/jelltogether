@@ -9,12 +9,12 @@
     "category": "Social",
     "versions": [
       {
-        "version": "1.1.6.0",
-        "changelog": "Send Jellyfin web access tokens with companion API requests to prevent unauthorized plugin calls.",
+        "version": "1.1.7.0",
+        "changelog": "Use one Jellyfin menu entry, serve a standalone public companion, and replace browser dialogs with app toasts and modals.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.1.6.0/jelltogether_1.1.6.0.zip",
-        "checksum": "CF3E7FCAF61EDAD40199437FF436609E",
-        "timestamp": "2026-05-13T02:36:35Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.1.7.0/jelltogether_1.1.7.0.zip",
+        "checksum": "1DE28BBD325544F6447CCC62E962C820",
+        "timestamp": "2026-05-13T04:43:47Z"
       }
     ]
   }

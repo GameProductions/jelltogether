@@ -17,6 +17,7 @@ class JellTogetherApp {
         this._lastParticipantData = null;
         this._lastQueueData = null;
         this._lastTheoryData = null;
+        this.activeToasts = new Set();
 
         this.init();
     }
@@ -34,6 +35,8 @@ class JellTogetherApp {
     }
 
     getInviteCodeFromUrl() {
+        if (window.JELL_TOGETHER_INVITE_CODE) return window.JELL_TOGETHER_INVITE_CODE;
+
         const params = new URLSearchParams(window.location.search);
         const directCode = params.get('code');
         if (directCode) return directCode;
@@ -65,6 +68,7 @@ class JellTogetherApp {
             this.canSavePublicAccessSettings = settings.canSavePublicAccessSettings === true;
         } catch (e) {
             console.error("Settings Load Error:", e);
+            this.showToast("Sign in to Jellyfin to load JellTogether settings.", 'error');
         }
 
         const publicAccessSettings = document.getElementById('public-access-settings');
@@ -72,14 +76,30 @@ class JellTogetherApp {
         const companionInput = document.getElementById('public-companion-url');
         if (publicAccessSettings) publicAccessSettings.style.display = this.canSavePublicAccessSettings ? 'block' : 'none';
         if (jellyfinInput) jellyfinInput.value = this.publicJellyfinUrl;
-        if (companionInput) companionInput.value = this.publicCompanionOrigin;
+        if (companionInput) companionInput.value = this.publicCompanionOrigin || this.generatedCompanionUrl();
     }
 
     setupEventHandlers() {
         const chatInput = document.getElementById('chat-input');
         const codeInput = document.getElementById('join-code-input');
+        const jellyfinInput = document.getElementById('public-jellyfin-url');
+        const companionInput = document.getElementById('public-companion-url');
         if (chatInput) chatInput.onkeypress = (e) => { if (e.key === 'Enter') this.sendMessage(); };
         if (codeInput) codeInput.onkeypress = (e) => { if (e.key === 'Enter') this.joinByCode(); };
+        if (jellyfinInput && companionInput) {
+            jellyfinInput.addEventListener('input', () => {
+                const existing = companionInput.value.trim();
+                const generated = this.generatedCompanionUrl(jellyfinInput.value);
+                if (!existing || existing === this.generatedCompanionUrl(this.publicJellyfinUrl)) {
+                    companionInput.value = generated;
+                }
+            });
+        }
+    }
+
+    generatedCompanionUrl(value = this.publicJellyfinUrl) {
+        const base = (value || "").trim().replace(/\/+$/, '');
+        return base ? `${base}/jelltogether/Companion` : "";
     }
 
     async loadCurrentUser() {
@@ -88,6 +108,7 @@ class JellTogetherApp {
             this.currentUser = user.id || user.name || "Unknown";
         } catch (e) {
             console.error("User Load Error:", e);
+            this.showToast("Sign in to Jellyfin to use the companion.", 'error');
         }
 
         const display = document.getElementById('display-name');
@@ -192,10 +213,98 @@ class JellTogetherApp {
         return btn;
     }
 
-    async createRoom() {
-        const name = prompt("Name this watch party:");
-        if (!name || !name.trim()) return;
+    showToast(message, tone = 'info') {
+        const key = `${tone}:${message}`;
+        if (this.activeToasts.has(key)) return;
+        this.activeToasts.add(key);
 
+        let stack = document.getElementById('toast-stack');
+        if (!stack) {
+            stack = document.createElement('div');
+            stack.id = 'toast-stack';
+            document.body.appendChild(stack);
+        }
+
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${tone}`;
+        toast.textContent = message;
+        const dismiss = document.createElement('button');
+        dismiss.type = 'button';
+        dismiss.textContent = 'Dismiss';
+        dismiss.onclick = () => {
+            this.activeToasts.delete(key);
+            toast.remove();
+        };
+        toast.appendChild(dismiss);
+        stack.appendChild(toast);
+        setTimeout(() => {
+            this.activeToasts.delete(key);
+            toast.remove();
+        }, 5200);
+    }
+
+    showModal(title, fields, actions) {
+        this.hideModal();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card';
+        modal.appendChild(this.textEl('h3', title));
+
+        const values = {};
+        fields.forEach(field => {
+            const label = document.createElement('label');
+            label.className = field.type === 'checkbox' ? 'toggle-row modal-field' : 'modal-field';
+            const input = document.createElement('input');
+            input.type = field.type || 'text';
+            input.className = field.type === 'checkbox' ? '' : 'glass-input';
+            input.value = field.value || '';
+            input.checked = field.checked === true;
+            input.placeholder = field.placeholder || '';
+            input.min = field.min ?? '';
+            values[field.id] = input;
+            label.appendChild(input);
+            label.appendChild(this.textEl('span', field.label));
+            modal.appendChild(label);
+        });
+
+        const actionRow = document.createElement('div');
+        actionRow.className = 'split-actions';
+        actions.forEach(action => {
+            actionRow.appendChild(this.button(action.label, action.primary ? 'primary-command' : 'secondary-command', () => {
+                const result = {};
+                Object.entries(values).forEach(([id, input]) => {
+                    result[id] = input.type === 'checkbox' ? input.checked : input.value;
+                });
+                this.hideModal();
+                action.onClick?.(result);
+            }));
+        });
+        actionRow.appendChild(this.button('Cancel', 'secondary-command', () => this.hideModal()));
+        modal.appendChild(actionRow);
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        modal.querySelector('input')?.focus();
+    }
+
+    hideModal() {
+        document.getElementById('app-modal-overlay')?.remove();
+    }
+
+    async createRoom() {
+        this.showModal('Create watch party', [
+            { id: 'name', label: 'Room name', placeholder: 'Movie night' }
+        ], [
+            { label: 'Create', primary: true, onClick: ({ name }) => this.createRoomWithName(name) }
+        ]);
+    }
+
+    async createRoomWithName(name) {
+        if (!name || !name.trim()) return;
         try {
             const room = await this.fetchJson('/jelltogether/Rooms', {
                 method: 'POST',
@@ -205,7 +314,7 @@ class JellTogetherApp {
             await this.joinRoom(room.id);
         } catch (e) {
             console.error("Create Room Error:", e);
-            alert("Failed to create room.");
+            this.showToast("Failed to create room.", 'error');
         }
     }
 
@@ -215,6 +324,7 @@ class JellTogetherApp {
             this.renderRoomGrid(rooms);
         } catch (e) {
             console.error("Lobby Load Error:", e);
+            this.showToast("Could not load watch parties. Sign in to Jellyfin and try again.", 'error');
         }
     }
 
@@ -261,7 +371,7 @@ class JellTogetherApp {
             this.updateUIState();
         } catch (e) {
             console.error("Join Error:", e);
-            alert("Failed to join room.");
+            this.showToast("Failed to join room.", 'error');
         }
     }
 
@@ -271,13 +381,16 @@ class JellTogetherApp {
 
         try {
             const resp = await this.request(`/jelltogether/Rooms/ByCode/${encodeURIComponent(code)}`);
-            if (resp.status === 404) return alert("Invalid code.");
+            if (resp.status === 404) {
+                this.showToast("Invalid invite code.", 'error');
+                return;
+            }
             if (!resp.ok) throw new Error("Code lookup failed");
             const room = await resp.json();
             this.joinRoom(room.id, code);
         } catch (e) {
             console.error("Code Join Error:", e);
-            alert("Failed to join by code.");
+            this.showToast("Failed to join by code.", 'error');
         }
     }
 
@@ -395,7 +508,14 @@ class JellTogetherApp {
     }
 
     async addToQueue() {
-        const title = prompt("Search Media / Enter Title:");
+        this.showModal('Add to queue', [
+            { id: 'title', label: 'Title', placeholder: 'Movie or episode title' }
+        ], [
+            { label: 'Add', primary: true, onClick: ({ title }) => this.addToQueueTitle(title) }
+        ]);
+    }
+
+    async addToQueueTitle(title) {
         if (!title || !title.trim()) return;
         try {
             const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Queue`, title.trim());
@@ -403,11 +523,19 @@ class JellTogetherApp {
             await this.refreshRoom();
         } catch (e) {
             console.error("Queue Error:", e);
+            this.showToast("Failed to add queue item.", 'error');
         }
     }
 
     async addTheory() {
-        const text = prompt("Enter your theory / observation:");
+        this.showModal('New theory', [
+            { id: 'text', label: 'Observation', placeholder: 'What did you notice?' }
+        ], [
+            { label: 'Add', primary: true, onClick: ({ text }) => this.addTheoryText(text) }
+        ]);
+    }
+
+    async addTheoryText(text) {
         if (!text || !text.trim()) return;
         try {
             const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Theories`, text.trim());
@@ -415,6 +543,7 @@ class JellTogetherApp {
             await this.refreshRoom();
         } catch (e) {
             console.error("Theory Error:", e);
+            this.showToast("Failed to add theory.", 'error');
         }
     }
 
@@ -522,26 +651,41 @@ class JellTogetherApp {
     async saveDiscordStage() {
         const stageId = document.getElementById('discord-stage-id').value.trim();
         const botToken = document.getElementById('discord-bot-token').value.trim();
-        if (!stageId || !botToken) return alert("Please enter both ID and Token.");
+        if (!stageId || !botToken) {
+            this.showToast("Please enter both Discord Stage ID and bot token.", 'error');
+            return;
+        }
 
         try {
             const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/DiscordStage`, { botToken, stageId });
             if (!resp.ok) throw new Error("Discord config failed");
             document.getElementById('discord-bot-token').value = '';
-            alert("Discord Stage Configured!");
+            this.showToast("Discord Stage configured.", 'success');
         } catch (e) {
             console.error("Discord Config Error:", e);
+            this.showToast("Failed to save Discord Stage settings.", 'error');
         }
     }
 
     async syncDiscordStage(titleOverride = null) {
-        const title = titleOverride || prompt("Enter topic to sync to Discord:");
+        if (!titleOverride) {
+            this.showModal('Sync Discord Stage', [
+                { id: 'title', label: 'Topic', placeholder: 'Watching...' }
+            ], [
+                { label: 'Sync', primary: true, onClick: ({ title }) => this.syncDiscordStage(title) }
+            ]);
+            return;
+        }
+
+        const title = titleOverride;
         if (!title || !title.trim()) return;
         try {
             const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/SyncStage`, title.trim());
             if (!resp.ok) throw new Error("Discord sync failed");
+            this.showToast("Discord Stage synced.", 'success');
         } catch (e) {
             console.error("Discord Sync Error:", e);
+            this.showToast("Failed to sync Discord Stage.", 'error');
         }
     }
 
@@ -690,11 +834,21 @@ class JellTogetherApp {
     }
 
     async showPollModal() {
-        const question = prompt("Poll question:");
+        this.showModal('Create poll', [
+            { id: 'question', label: 'Question', placeholder: 'What should we watch next?' },
+            { id: 'options', label: 'Options', placeholder: 'Option one, option two' }
+        ], [
+            { label: 'Create', primary: true, onClick: ({ question, options }) => this.createPoll(question, options) }
+        ]);
+    }
+
+    async createPoll(question, rawOptions) {
         if (!question || !question.trim()) return;
-        const rawOptions = prompt("Options, separated by commas:");
         const options = (rawOptions || '').split(',').map(o => o.trim()).filter(Boolean);
-        if (options.length < 2) return alert("Enter at least two options.");
+        if (options.length < 2) {
+            this.showToast("Enter at least two poll options.", 'error');
+            return;
+        }
 
         try {
             const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Polls`, { question: question.trim(), options });
@@ -702,6 +856,7 @@ class JellTogetherApp {
             await this.refreshRoom();
         } catch (e) {
             console.error("Poll Create Error:", e);
+            this.showToast("Failed to create poll.", 'error');
         }
     }
 
@@ -749,18 +904,27 @@ class JellTogetherApp {
     }
 
     async generateAdvancedInvite() {
-        const canChat = confirm("Allow chat for this invite?");
-        const canControl = confirm("Allow playback control for this invite?");
-        const hours = parseInt(prompt("Hours valid (0 for no expiration):", "24") || "24", 10);
+        this.showModal('Invite settings', [
+            { id: 'canChat', type: 'checkbox', label: 'Allow chat', checked: true },
+            { id: 'canControl', type: 'checkbox', label: 'Allow playback control', checked: true },
+            { id: 'hours', type: 'number', label: 'Hours valid, 0 for no expiration', value: '24', min: '0' }
+        ], [
+            { label: 'Generate', primary: true, onClick: (values) => this.createAdvancedInvite(values) }
+        ]);
+    }
+
+    async createAdvancedInvite({ canChat, canControl, hours }) {
+        const hoursValid = parseInt(hours || "24", 10);
         try {
             const resp = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Invitations`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ canChat, canControl, hoursValid: Number.isNaN(hours) ? 24 : hours, maxUses: 0 })
+                body: JSON.stringify({ canChat, canControl, hoursValid: Number.isNaN(hoursValid) ? 24 : hoursValid, maxUses: 0 })
             });
             this.showInviteLink(resp.code);
         } catch (e) {
             console.error("Invite Gen Error:", e);
+            this.showToast("Failed to generate invite.", 'error');
         }
     }
 
@@ -826,9 +990,10 @@ class JellTogetherApp {
             });
             if (!resp.ok) throw new Error(`Settings save failed with ${resp.status}`);
             await this.loadSettings();
+            this.showToast("Public access settings saved.", 'success');
         } catch (e) {
             console.error("Settings Save Error:", e);
-            alert("Only Jellyfin administrators can save public access settings.");
+            this.showToast("Only Jellyfin administrators can save public access settings.", 'error');
         }
     }
 
