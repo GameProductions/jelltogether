@@ -1,5 +1,10 @@
 # JellTogether Changelog
 
+## [2026-05-13] - Inline room editing and tabbed controls
+- Replaced the rename button with inline host-editable room names.
+- Reworked the room sidebar into focused Chat, Room, People, and Polls tabs.
+- Simplified room deletion confirmation so hosts no longer have to type DELETE.
+
 ## [2026-05-13] - Room management and companion link polish
 - Added room rename/delete controls, removable queue and theory entries, and copyable companion URL pills.
 - Normalized nested room payload data so chat, queue, and theory board entries render names and content correctly.

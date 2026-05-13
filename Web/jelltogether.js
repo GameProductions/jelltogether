@@ -12,6 +12,7 @@ class JellTogetherApp {
         this.isVR = false;
         this.lang = 'en';
         this.t = JELL_TOGETHER_I18N[this.lang];
+        this.activeSidebarTab = 'chat';
 
         this._lastCinemaData = null;
         this._lastParticipantData = null;
@@ -85,8 +86,24 @@ class JellTogetherApp {
         const codeInput = document.getElementById('join-code-input');
         const jellyfinInput = document.getElementById('public-jellyfin-url');
         const companionInput = document.getElementById('public-companion-url');
+        const roomNameInput = document.getElementById('current-room-name');
         if (chatInput) chatInput.onkeypress = (e) => { if (e.key === 'Enter') this.sendMessage(); };
         if (codeInput) codeInput.onkeypress = (e) => { if (e.key === 'Enter') this.joinByCode(); };
+        if (roomNameInput) {
+            roomNameInput.addEventListener('blur', () => this.commitInlineRoomName());
+            roomNameInput.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter') {
+                    event.preventDefault();
+                    roomNameInput.blur();
+                }
+
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    roomNameInput.value = this.currentRoom?.name || '';
+                    roomNameInput.blur();
+                }
+            });
+        }
         if (jellyfinInput && companionInput) {
             jellyfinInput.addEventListener('input', () => {
                 const generated = this.generatedCompanionUrl(jellyfinInput.value);
@@ -472,6 +489,7 @@ class JellTogetherApp {
             this.reactionCount = this.currentRoom.recentReactions?.length || 0;
             this.resetRenderCaches();
             this.showView('party');
+            this.showSidebarTab(this.activeSidebarTab || 'chat');
             this.startRoomPolling();
             this.updateUIState();
         } catch (e) {
@@ -563,6 +581,7 @@ class JellTogetherApp {
         const amAdmin = this.canManage();
         const amOwner = this.isOwner();
 
+        document.getElementById('sidebar-tabs').style.display = 'grid';
         document.getElementById('participant-section').style.display = 'block';
         document.getElementById('poll-section').style.display = 'block';
         document.getElementById('reaction-bar').style.display = 'flex';
@@ -601,7 +620,13 @@ class JellTogetherApp {
         }
 
         document.getElementById('participant-count').textContent = `${this.currentRoom.participants.length} participants`;
-        document.getElementById('current-room-name').textContent = this.currentRoom.name;
+        const roomNameInput = document.getElementById('current-room-name');
+        if (roomNameInput && document.activeElement !== roomNameInput) roomNameInput.value = this.currentRoom.name;
+        if (roomNameInput) {
+            roomNameInput.readOnly = !amAdmin;
+            roomNameInput.classList.toggle('is-editable', amAdmin);
+            roomNameInput.title = amAdmin ? 'Edit room name' : 'Only hosts can rename rooms';
+        }
         document.getElementById('invite-code-text').textContent = this.currentRoom.roomCode;
 
         const canChat = this.canChat();
@@ -616,6 +641,20 @@ class JellTogetherApp {
         this.renderCinemaSeats();
         if (!this.isVR) this.applyTheme(this.currentRoom.currentTheme);
         this.checkReactions();
+    }
+
+    showSidebarTab(tabName) {
+        const tabs = ['chat', 'room', 'people', 'polls'];
+        const nextTab = tabs.includes(tabName) ? tabName : 'chat';
+        this.activeSidebarTab = nextTab;
+
+        document.querySelectorAll('.sidebar-tab').forEach(tab => {
+            tab.classList.toggle('active', tab.dataset.tab === nextTab);
+        });
+
+        document.querySelectorAll('.sidebar-tab-panel').forEach(panel => {
+            panel.hidden = panel.dataset.tabPanel !== nextTab;
+        });
     }
 
     async addToQueue() {
@@ -638,13 +677,18 @@ class JellTogetherApp {
         }
     }
 
-    async renameRoom() {
-        if (!this.currentRoom || !this.canManage()) return;
-        this.showModal('Rename room', [
-            { id: 'name', label: 'Room name', value: this.currentRoom.name, placeholder: 'Movie night' }
-        ], [
-            { label: 'Save', primary: true, onClick: ({ name }) => this.renameRoomTo(name) }
-        ]);
+    async commitInlineRoomName() {
+        const input = document.getElementById('current-room-name');
+        if (!input || !this.currentRoom || !this.canManage()) return;
+
+        const nextName = input.value.trim();
+        if (!nextName) {
+            input.value = this.currentRoom.name;
+            return;
+        }
+
+        if (nextName === this.currentRoom.name) return;
+        await this.renameRoomTo(nextName);
     }
 
     async renameRoomTo(name) {
@@ -662,18 +706,13 @@ class JellTogetherApp {
 
     async deleteRoom() {
         if (!this.currentRoom || !this.isOwner()) return;
-        this.showModal('Delete room', [
-            { id: 'confirm', label: 'Type DELETE to confirm', placeholder: 'DELETE' }
-        ], [
-            { label: 'Delete', danger: true, onClick: ({ confirm }) => this.deleteRoomConfirmed(confirm) }
+        this.showModal('Delete this room?', [], [
+            { label: 'Delete Room', danger: true, onClick: () => this.deleteRoomConfirmed() }
         ]);
     }
 
-    async deleteRoomConfirmed(confirm) {
-        if (!this.currentRoom || confirm !== 'DELETE') {
-            this.showToast("Room was not deleted.", 'info');
-            return;
-        }
+    async deleteRoomConfirmed() {
+        if (!this.currentRoom) return;
 
         try {
             const resp = await this.request(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}`, { method: 'DELETE' });
@@ -1069,7 +1108,7 @@ class JellTogetherApp {
         document.getElementById('lobby-view').style.display = view === 'lobby' ? 'block' : 'none';
         document.getElementById('party-view').style.display = view === 'party' ? 'block' : 'none';
         if (view === 'lobby') {
-            ['participant-section', 'room-management', 'host-theme-controls', 'host-discord-stage', 'poll-section', 'reaction-bar', 'chat-container'].forEach(id => {
+            ['sidebar-tabs', 'participant-section', 'room-management', 'host-theme-controls', 'host-discord-stage', 'poll-section', 'reaction-bar', 'chat-container'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
             });

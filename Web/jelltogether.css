@@ -436,6 +436,31 @@ h1 {
     margin: 8px 0 24px;
 }
 
+.inline-room-name {
+    width: min(100%, 920px);
+    margin-top: 8px;
+    padding: 2px 0;
+    border: 0;
+    border-bottom: 1px solid transparent;
+    outline: none;
+    color: var(--text-main);
+    background: transparent;
+    font-size: clamp(2.3rem, 4vw, 4.8rem);
+    line-height: 0.96;
+    font-weight: 800;
+    letter-spacing: 0;
+}
+
+.inline-room-name.is-editable {
+    cursor: text;
+    border-bottom-color: rgba(94, 234, 212, 0.22);
+}
+
+.inline-room-name.is-editable:focus {
+    border-bottom-color: rgba(94, 234, 212, 0.82);
+    box-shadow: 0 8px 0 -6px rgba(94, 234, 212, 0.22);
+}
+
 .room-stats {
     padding: 11px 15px;
     color: var(--primary);
@@ -534,6 +559,44 @@ h1 {
     border-bottom: 1px solid var(--glass-border);
 }
 
+.sidebar-tabs {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    padding: 12px;
+    border-bottom: 1px solid var(--glass-border);
+    background: rgba(255, 255, 255, 0.035);
+}
+
+.sidebar-tab {
+    min-height: 38px;
+    padding: 0 8px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: var(--text-dim);
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.78rem;
+    font-weight: 800;
+}
+
+.sidebar-tab:hover,
+.sidebar-tab.active {
+    color: var(--text-main);
+    border-color: rgba(94, 234, 212, 0.34);
+    background: rgba(94, 234, 212, 0.10);
+}
+
+.sidebar-tab-panel {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.sidebar-tab-panel[hidden] {
+    display: none !important;
+}
+
 .status-dot {
     width: 11px;
     height: 11px;
@@ -551,7 +614,7 @@ h1 {
 }
 
 .participant-section {
-    max-height: 240px;
+    max-height: none;
     overflow-y: auto;
 }
 
@@ -562,7 +625,7 @@ h1 {
 
 .room-management-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
 }
 
@@ -718,7 +781,7 @@ h1 {
 }
 
 .chat-container {
-    min-height: 280px;
+    min-height: 440px;
     flex: 1;
     display: flex;
     flex-direction: column;

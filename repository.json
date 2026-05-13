@@ -9,12 +9,12 @@
     "category": "Social",
     "versions": [
       {
-        "version": "1.1.9.0",
-        "changelog": "Add room management controls, copyable companion links, and normalized nested room data for chat, queue, and theory board entries.",
+        "version": "1.1.10.0",
+        "changelog": "Refine room controls with inline room renaming, tabbed sidebar sections, and simpler delete confirmation.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.1.9.0/jelltogether_1.1.9.0.zip",
-        "checksum": "F9F917B4173363EA63552B8424A8A365",
-        "timestamp": "2026-05-13T05:32:30Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.1.10.0/jelltogether_1.1.10.0.zip",
+        "checksum": "ED3820E3FDBE74F5DF649B7E90720A69",
+        "timestamp": "2026-05-13T06:21:42Z"
       }
     ]
   }

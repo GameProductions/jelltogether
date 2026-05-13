@@ -48,7 +48,7 @@
                 <div class="room-heading">
                     <div>
                         <div class="eyebrow">Now hosting</div>
-                        <h1 id="current-room-name">Party Name</h1>
+                        <input type="text" id="current-room-name" class="inline-room-name" value="Party Name" readonly aria-label="Room name">
                     </div>
                     <div class="room-stats">
                         <span id="participant-count">0 participants</span>
@@ -104,86 +104,101 @@
                 </div>
             </div>
 
-            <div id="room-management" class="admin-group room-management" style="display: none;">
-                <div class="section-label">Room</div>
-                <div class="room-management-grid">
-                    <button class="secondary-command compact" onclick="app.renameRoom()">Rename</button>
-                    <button class="secondary-command compact" onclick="app.generateAdvancedInvite()">Invite Rules</button>
-                    <button class="danger-command compact" onclick="app.deleteRoom()">Delete</button>
+            <nav id="sidebar-tabs" class="sidebar-tabs" style="display: none;" aria-label="Party management sections">
+                <button type="button" class="sidebar-tab active" data-tab="chat" onclick="app.showSidebarTab('chat')">Chat</button>
+                <button type="button" class="sidebar-tab" data-tab="room" onclick="app.showSidebarTab('room')">Room</button>
+                <button type="button" class="sidebar-tab" data-tab="people" onclick="app.showSidebarTab('people')">People</button>
+                <button type="button" class="sidebar-tab" data-tab="polls" onclick="app.showSidebarTab('polls')">Polls</button>
+            </nav>
+
+            <div id="sidebar-tab-chat" class="sidebar-tab-panel" data-tab-panel="chat">
+                <div id="reaction-bar" class="reaction-bar" style="display: none;">
+                    <button class="action-btn" onclick="app.sendReaction('🔥')">🔥</button>
+                    <button class="action-btn" onclick="app.sendReaction('😂')">😂</button>
+                    <button class="action-btn" onclick="app.sendReaction('😮')">😮</button>
+                    <button class="action-btn" onclick="app.sendReaction('😢')">😢</button>
+                    <button class="action-btn" onclick="app.sendReaction('👏')">👏</button>
                 </div>
-                <div class="room-note">Library picking and playback sync are not connected yet.</div>
+
+                <div id="chat-container" class="chat-container" style="display: none;">
+                    <div class="section-label">Chat</div>
+                    <div id="chat-messages" class="chat-messages"></div>
+                    <div class="chat-input-area">
+                        <input type="text" id="chat-input" class="chat-input" placeholder="Type a message..." disabled>
+                        <button id="btn-send" class="btn-send" onclick="app.sendMessage()" disabled>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
             </div>
 
-            <div id="participant-section" class="participant-section" style="display: none;">
-                <div class="panel-title-row">
-                    <div class="section-label">Participants</div>
-                    <div id="participant-controls" class="icon-row">
-                        <button id="btn-toggle-participant-invites" class="action-btn" onclick="app.toggleParticipantInvites()" title="Toggle Invite Privileges">🤝</button>
-                        <button id="btn-toggle-privacy" class="action-btn" onclick="app.togglePrivacy()" title="Toggle Privacy">👁️</button>
-                        <button id="btn-toggle-control" class="action-btn" onclick="app.toggleHostControl()" title="Toggle Control">🔓</button>
+            <div id="sidebar-tab-room" class="sidebar-tab-panel" data-tab-panel="room" hidden>
+                <div id="room-management" class="admin-group room-management" style="display: none;">
+                    <div class="section-label">Room</div>
+                    <div class="room-management-grid">
+                        <button class="secondary-command compact" onclick="app.generateAdvancedInvite()">Invite Rules</button>
+                        <button class="danger-command compact" onclick="app.deleteRoom()">Delete Room</button>
+                    </div>
+                    <div class="room-note">Edit the room name directly in the page title.</div>
+                    <div class="room-note">Library picking and playback sync are not connected yet.</div>
+                </div>
+
+                <div id="host-theme-controls" class="admin-group" style="display: none;">
+                    <div class="section-label">Theater Theme</div>
+                    <div class="theme-grid">
+                        <button class="btn-theme" onclick="app.setTheme('default')">Modern</button>
+                        <button class="btn-theme" onclick="app.setTheme('cinema')">Classic</button>
+                        <button class="btn-theme" onclick="app.setTheme('horror')">Horror</button>
+                        <button class="btn-theme" onclick="app.setTheme('anime')">Anime</button>
+                        <button class="btn-theme" onclick="app.setTheme('scifi')">Space</button>
                     </div>
                 </div>
 
-                <div id="invite-code-container">
-                    <div class="invite-code-row">
-                        <span id="invite-code-text">CODE</span>
-                        <div class="inline-actions">
-                            <button class="secondary-command compact" onclick="app.copyInvite()">Copy</button>
-                            <button class="secondary-command compact" onclick="app.showShareModal()">QR/Link</button>
+                <div id="host-discord-stage" class="admin-group" style="display: none;">
+                    <div class="section-label">Discord Stage</div>
+                    <input type="text" id="discord-stage-id" placeholder="Stage Channel ID" class="chat-input">
+                    <input type="password" id="discord-bot-token" placeholder="Bot Token" class="chat-input">
+                    <div class="split-actions">
+                        <button class="secondary-command" onclick="app.saveDiscordStage()">Save</button>
+                        <button class="primary-command" onclick="app.syncDiscordStage()">Sync</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="sidebar-tab-people" class="sidebar-tab-panel" data-tab-panel="people" hidden>
+                <div id="participant-section" class="participant-section" style="display: none;">
+                    <div class="panel-title-row">
+                        <div class="section-label">Participants</div>
+                        <div id="participant-controls" class="icon-row">
+                            <button id="btn-toggle-participant-invites" class="action-btn" onclick="app.toggleParticipantInvites()" title="Toggle Invite Privileges">🤝</button>
+                            <button id="btn-toggle-privacy" class="action-btn" onclick="app.togglePrivacy()" title="Toggle Privacy">👁️</button>
+                            <button id="btn-toggle-control" class="action-btn" onclick="app.toggleHostControl()" title="Toggle Control">🔓</button>
                         </div>
                     </div>
-                </div>
 
-                <div id="participant-list" class="participant-list"></div>
-            </div>
+                    <div id="invite-code-container">
+                        <div class="invite-code-row">
+                            <span id="invite-code-text">CODE</span>
+                            <div class="inline-actions">
+                                <button class="secondary-command compact" onclick="app.copyInvite()">Copy</button>
+                                <button class="secondary-command compact" onclick="app.showShareModal()">QR/Link</button>
+                            </div>
+                        </div>
+                    </div>
 
-            <div id="host-theme-controls" class="admin-group" style="display: none;">
-                <div class="section-label">Theater Theme</div>
-                <div class="theme-grid">
-                    <button class="btn-theme" onclick="app.setTheme('default')">Modern</button>
-                    <button class="btn-theme" onclick="app.setTheme('cinema')">Classic</button>
-                    <button class="btn-theme" onclick="app.setTheme('horror')">Horror</button>
-                    <button class="btn-theme" onclick="app.setTheme('anime')">Anime</button>
-                    <button class="btn-theme" onclick="app.setTheme('scifi')">Space</button>
-                </div>
-            </div>
-
-            <div id="host-discord-stage" class="admin-group" style="display: none;">
-                <div class="section-label">Discord Stage</div>
-                <input type="text" id="discord-stage-id" placeholder="Stage Channel ID" class="chat-input">
-                <input type="password" id="discord-bot-token" placeholder="Bot Token" class="chat-input">
-                <div class="split-actions">
-                    <button class="secondary-command" onclick="app.saveDiscordStage()">Save</button>
-                    <button class="primary-command" onclick="app.syncDiscordStage()">Sync</button>
+                    <div id="participant-list" class="participant-list"></div>
                 </div>
             </div>
 
-            <div id="reaction-bar" class="reaction-bar" style="display: none;">
-                <button class="action-btn" onclick="app.sendReaction('🔥')">🔥</button>
-                <button class="action-btn" onclick="app.sendReaction('😂')">😂</button>
-                <button class="action-btn" onclick="app.sendReaction('😮')">😮</button>
-                <button class="action-btn" onclick="app.sendReaction('😢')">😢</button>
-                <button class="action-btn" onclick="app.sendReaction('👏')">👏</button>
-            </div>
-
-            <div id="poll-section" class="poll-section" style="display: none;">
-                <div class="panel-title-row">
-                    <div class="section-label">Live Polls</div>
-                    <button id="btn-new-poll" class="action-btn" style="display: none;" onclick="showPollModal()">+</button>
-                </div>
-                <div id="poll-list" class="poll-list"></div>
-            </div>
-
-            <div id="chat-container" class="chat-container" style="display: none;">
-                <div class="section-label">Chat</div>
-                <div id="chat-messages" class="chat-messages"></div>
-                <div class="chat-input-area">
-                    <input type="text" id="chat-input" class="chat-input" placeholder="Type a message..." disabled>
-                    <button id="btn-send" class="btn-send" onclick="app.sendMessage()" disabled>
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
-                        </svg>
-                    </button>
+            <div id="sidebar-tab-polls" class="sidebar-tab-panel" data-tab-panel="polls" hidden>
+                <div id="poll-section" class="poll-section" style="display: none;">
+                    <div class="panel-title-row">
+                        <div class="section-label">Live Polls</div>
+                        <button id="btn-new-poll" class="action-btn" style="display: none;" onclick="showPollModal()">+</button>
+                    </div>
+                    <div id="poll-list" class="poll-list"></div>
                 </div>
             </div>
         </aside>
