@@ -1,5 +1,8 @@
 # JellTogether Changelog
 
+## [2026-05-13] - Sidebar settings routing
+- Changed the Jellyfin sidebar entry to open the global settings page.
+
 ## [2026-05-13] - Listing settings route and banner refresh
 - Fixed Jellyfin plugin listing settings navigation so it can only open global settings.
 - Refreshed the Jellyfin listing banner with a taller 16:9 watch-party design.

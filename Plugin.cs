@@ -34,7 +34,10 @@ namespace JellTogether.Plugin
                 {
                     Name = "jelltogether",
                     DisplayName = "JellTogether",
-                    EmbeddedResourcePath = WebResourcePrefix + ".jelltogether-settings.html"
+                    EmbeddedResourcePath = WebResourcePrefix + ".jelltogether-settings.html",
+                    EnableInMainMenu = true,
+                    MenuSection = "home",
+                    MenuIcon = "settings"
                 },
                 new PluginPageInfo
                 {
