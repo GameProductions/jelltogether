@@ -1,5 +1,11 @@
 # JellTogether Changelog
 
+## [2026-05-13] - Interactive theater seats
+- Assigned participants visibly to theater seats with initials, hover details, and click-through participant details.
+- Show Jellyfin profile pictures on occupied seats when available, with initials as fallback.
+- Added seat switching by clicking an open theater seat.
+- Added chat replies, @mentions, and emoji reactions on individual messages.
+
 ## [2026-05-13] - Library access media folders
 - Changed global library access settings to load actual Jellyfin media folders before falling back to user views.
 - Added queue options to add an entire season, series, or matching collection when selecting Jellyfin media.

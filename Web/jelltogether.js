@@ -16,6 +16,7 @@ class JellTogetherApp {
         this.lang = 'en';
         this.t = JELL_TOGETHER_I18N[this.lang];
         this.activeSidebarTab = 'chat';
+        this.replyTarget = null;
 
         this._lastCinemaData = null;
         this._lastParticipantData = null;
@@ -278,9 +279,15 @@ class JellTogetherApp {
     normalizeMessage(message) {
         return {
             ...message,
+            id: this.prop(message, 'id', null, ''),
             userId: this.prop(message, 'userId', null, ''),
             userName: this.prop(message, 'userName', null, 'Unknown'),
             text: this.prop(message, 'text', null, ''),
+            replyToMessageId: this.prop(message, 'replyToMessageId', null, ''),
+            replyToUserName: this.prop(message, 'replyToUserName', null, ''),
+            replyToText: this.prop(message, 'replyToText', null, ''),
+            mentions: this.prop(message, 'mentions', null, []),
+            reactions: this.prop(message, 'reactions', null, {}),
             timestamp: this.prop(message, 'timestamp', null, '')
         };
     }
@@ -1178,22 +1185,140 @@ class JellTogetherApp {
     }
 
     renderCinemaSeats() {
-        const dataStr = JSON.stringify(this.currentRoom.cinemaSeats);
+        const dataStr = JSON.stringify({
+            seats: this.currentRoom.cinemaSeats,
+            participants: this.currentRoom.participants,
+            ownerId: this.currentRoom.ownerId,
+            coHostIds: this.currentRoom.coHostIds,
+            currentUser: this.currentUser
+        });
         if (dataStr === this._lastCinemaData) return;
         this._lastCinemaData = dataStr;
 
         const container = document.getElementById('cinema-seats');
         this.clear(container);
         for (let i = 0; i < 40; i++) {
-            const seat = document.createElement('div');
+            const seat = document.createElement('button');
+            seat.type = 'button';
             seat.className = 'seat';
-            const occupant = Object.entries(this.currentRoom.cinemaSeats).find(([, s]) => s === i);
-            if (occupant) {
+            seat.dataset.seat = String(i + 1);
+            seat.setAttribute('aria-label', `Seat ${i + 1}`);
+
+            const occupant = this.seatOccupant(i);
+            const label = document.createElement('span');
+            label.className = 'seat-label';
+            label.textContent = String(i + 1);
+            seat.appendChild(label);
+
+            if (occupant?.userId) {
+                const isCurrentUser = occupant.userId === this.currentUser;
                 seat.classList.add('occupied');
-                seat.title = occupant[0];
+                if (isCurrentUser) seat.classList.add('my-seat');
+                seat.setAttribute('aria-label', `Seat ${i + 1}, ${occupant.userId}${isCurrentUser ? ', your seat' : ''}`);
+                seat.dataset.tooltip = `${occupant.userId} • ${occupant.role}${isCurrentUser ? ' • You' : ''}`;
+                seat.appendChild(this.participantAvatar(occupant.userId, 'seat-avatar'));
+                seat.onclick = () => this.showSeatDetails(i, occupant);
+            } else {
+                seat.classList.add('available');
+                seat.dataset.tooltip = `Seat ${i + 1} is open. Click to sit here.`;
+                seat.onclick = () => this.moveToSeat(i);
             }
             container.appendChild(seat);
         }
+    }
+
+    seatOccupant(seatIndex) {
+        const match = Object.entries(this.currentRoom?.cinemaSeats || {})
+            .find(([, assignedSeat]) => Number(assignedSeat) === seatIndex);
+        if (!match) return null;
+
+        const [userId] = match;
+        return {
+            userId,
+            role: this.participantRole(userId),
+            canChat: this.currentRoom.permissions?.[userId]?.canChat !== false,
+            canControlPlayback: this.currentRoom.permissions?.[userId]?.canControlPlayback === true
+        };
+    }
+
+    participantRole(userId) {
+        if (this.currentRoom?.ownerId === userId) return 'Host';
+        if (this.currentRoom?.coHostIds?.includes(userId)) return 'Co-host';
+        return 'Guest';
+    }
+
+    participantInitials(userId) {
+        const parts = String(userId || '?').split(/[\s._@-]+/).filter(Boolean);
+        const letters = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : String(userId || '?').slice(0, 2);
+        return letters.toUpperCase();
+    }
+
+    participantAvatar(userId, className) {
+        const wrapper = this.textEl('span', this.participantInitials(userId), `${className} avatar-fallback`);
+        if (!userId || userId === 'Unknown') return wrapper;
+
+        const image = document.createElement('img');
+        image.alt = '';
+        image.loading = 'lazy';
+        image.src = `/Users/${encodeURIComponent(userId)}/Images/Primary?fillHeight=96&fillWidth=96&quality=90`;
+        image.onload = () => {
+            wrapper.textContent = '';
+            wrapper.classList.remove('avatar-fallback');
+            wrapper.appendChild(image);
+        };
+        image.onerror = () => image.remove();
+        return wrapper;
+    }
+
+    async moveToSeat(seatIndex) {
+        if (!this.currentRoom?.id) return;
+        try {
+            const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Seats/${seatIndex}`, {});
+            if (!resp.ok) throw new Error("Seat move failed");
+            await this.refreshRoom();
+            this.showToast(`Moved to seat ${seatIndex + 1}.`, 'success');
+        } catch (e) {
+            console.error("Seat Move Error:", e);
+            this.showToast("That seat is no longer available.", 'error');
+        }
+    }
+
+    showSeatDetails(seatIndex, occupant) {
+        this.hideModal();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card seat-modal';
+        modal.appendChild(this.textEl('h3', `Seat ${seatIndex + 1}`));
+
+        modal.appendChild(this.participantAvatar(occupant.userId, 'seat-modal-avatar'));
+        modal.appendChild(this.textEl('strong', occupant.userId, 'seat-modal-name'));
+        modal.appendChild(this.textEl('span', occupant.role, `role-badge ${occupant.role === 'Host' ? 'role-owner' : occupant.role === 'Co-host' ? 'role-cohost' : ''}`));
+
+        const details = document.createElement('div');
+        details.className = 'seat-detail-grid';
+        details.appendChild(this.textEl('span', occupant.canChat ? 'Chat enabled' : 'Chat muted'));
+        details.appendChild(this.textEl('span', occupant.canControlPlayback ? 'Playback control' : 'No playback control'));
+        if (occupant.userId === this.currentUser) details.appendChild(this.textEl('span', 'This is your current seat'));
+        modal.appendChild(details);
+
+        const actionRow = document.createElement('div');
+        actionRow.className = 'split-actions';
+        if (occupant.userId !== this.currentUser) {
+            actionRow.appendChild(this.button('Send wave', 'secondary-command', () => {
+                this.hideModal();
+                this.addReaction('👋');
+                this.showToast(`Waved to ${occupant.userId}.`, 'success');
+            }));
+        }
+        actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
+        modal.appendChild(actionRow);
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
     }
 
     async checkVR() {
@@ -1278,11 +1403,45 @@ class JellTogetherApp {
         if (!text || !this.currentRoom || !this.canChat()) return;
         input.value = '';
         try {
-            const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Messages`, text);
+            const payload = {
+                text,
+                replyToMessageId: this.replyTarget?.id || ''
+            };
+            const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Messages`, payload);
             if (!resp.ok) throw new Error("Send message failed");
+            this.replyTarget = null;
             await this.refreshRoom();
         } catch (e) {
             console.error("Send Message Error:", e);
+            this.showToast("Failed to send message.", 'error');
+        }
+    }
+
+    setReplyTarget(message) {
+        this.replyTarget = message;
+        const input = document.getElementById('chat-input');
+        if (input) {
+            input.placeholder = `Replying to ${message.userName}`;
+            input.focus();
+        }
+        this.showToast(`Replying to ${message.userName}.`, 'info');
+    }
+
+    clearReplyTarget() {
+        this.replyTarget = null;
+        const input = document.getElementById('chat-input');
+        if (input) input.placeholder = 'Type a message...';
+    }
+
+    async toggleMessageReaction(messageId, emoji) {
+        if (!this.currentRoom || !messageId) return;
+        try {
+            const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Messages/${encodeURIComponent(messageId)}/Reactions`, emoji);
+            if (!resp.ok) throw new Error("Message reaction failed");
+            await this.refreshRoom();
+        } catch (e) {
+            console.error("Message Reaction Error:", e);
+            this.showToast("Failed to update reaction.", 'error');
         }
     }
 
@@ -1343,12 +1502,54 @@ class JellTogetherApp {
         this.clear(container);
         this.currentRoom.messages.forEach(msg => {
             const bubble = document.createElement('div');
-            bubble.className = `message ${msg.userName === this.currentUser ? 'sent' : 'received'}`;
+            const isMentioned = msg.mentions?.includes(this.currentUser);
+            bubble.className = `message ${msg.userName === this.currentUser ? 'sent' : 'received'}${isMentioned ? ' mentioned' : ''}`;
             bubble.appendChild(this.textEl('span', msg.userName, 'user'));
-            bubble.appendChild(document.createTextNode(msg.text));
+            if (msg.replyToMessageId) {
+                const reply = document.createElement('div');
+                reply.className = 'message-reply-context';
+                reply.appendChild(this.textEl('strong', msg.replyToUserName || 'Reply'));
+                reply.appendChild(this.textEl('span', msg.replyToText || 'Previous message'));
+                bubble.appendChild(reply);
+            }
+            bubble.appendChild(this.renderMessageText(msg.text));
+
+            const actions = document.createElement('div');
+            actions.className = 'message-actions';
+            actions.appendChild(this.button('Reply', 'message-action', () => this.setReplyTarget(msg)));
+            ['👍', '😂', '🔥', '👏'].forEach(emoji => {
+                actions.appendChild(this.button(emoji, 'message-action emoji-action', () => this.toggleMessageReaction(msg.id, emoji)));
+            });
+            bubble.appendChild(actions);
+
+            const reactions = Object.entries(msg.reactions || {}).filter(([, users]) => users?.length);
+            if (reactions.length) {
+                const reactionRow = document.createElement('div');
+                reactionRow.className = 'message-reactions';
+                reactions.forEach(([emoji, users]) => {
+                    reactionRow.appendChild(this.button(`${emoji} ${users.length}`, users.includes(this.currentUser) ? 'reaction-chip active' : 'reaction-chip', () => this.toggleMessageReaction(msg.id, emoji)));
+                });
+                bubble.appendChild(reactionRow);
+            }
             container.appendChild(bubble);
         });
         container.scrollTop = container.scrollHeight;
+    }
+
+    renderMessageText(text) {
+        const el = document.createElement('div');
+        el.className = 'message-text';
+        const participants = new Set((this.currentRoom?.participants || []).flatMap(user => [user, String(user).split('@')[0]]));
+        String(text || '').split(/(@[\w.\-]+)/g).forEach(part => {
+            if (!part) return;
+            const token = part.startsWith('@') ? part.slice(1) : '';
+            if (token && participants.has(token)) {
+                el.appendChild(this.textEl('span', part, 'mention-token'));
+            } else {
+                el.appendChild(document.createTextNode(part));
+            }
+        });
+        return el;
     }
 
     renderParticipants() {

@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -57,6 +59,12 @@ namespace JellTogether.Plugin.Api
         public string LibraryId { get; set; } = string.Empty;
         public string MediaType { get; set; } = string.Empty;
         public string Overview { get; set; } = string.Empty;
+    }
+
+    public class ChatMessageRequest
+    {
+        public string Text { get; set; } = string.Empty;
+        public string ReplyToMessageId { get; set; } = string.Empty;
     }
 
     [ApiController]
@@ -432,6 +440,16 @@ namespace JellTogether.Plugin.Api
             return Ok();
         }
 
+        [HttpPost("Rooms/{roomId}/Seats/{seatIndex:int}")]
+        public ActionResult MoveSeat(string roomId, int seatIndex)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+
+            return _roomManager.MoveSeat(roomId, CurrentUserId, seatIndex) ? Ok() : BadRequest("Seat is not available.");
+        }
+
         [HttpGet("Rooms/{roomId}/Updates")]
         public ActionResult<JellTogetherRoom> GetRoomUpdates(string roomId, [FromQuery] DateTime since)
         {
@@ -584,23 +602,45 @@ namespace JellTogether.Plugin.Api
         }
 
         [HttpPost("Rooms/{roomId}/Messages")]
-        public ActionResult AddMessage(string roomId, [FromBody] string text)
+        public ActionResult AddMessage(string roomId, [FromBody] JsonElement payload)
         {
+            var request = ParseChatMessageRequest(payload);
+            var text = request.Text;
             if (string.IsNullOrWhiteSpace(text)) return BadRequest("Message text is required.");
 
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
             if (!room.Participants.Contains(CurrentUserId)) return Forbid();
 
+            var replyTo = string.IsNullOrWhiteSpace(request.ReplyToMessageId)
+                ? null
+                : room.Messages.FirstOrDefault(m => m.Id == request.ReplyToMessageId);
+
             var message = new ChatMessage
             {
                 UserId = CurrentUserId,
                 UserName = CurrentUserId,
-                Text = text
+                Text = text,
+                ReplyToMessageId = replyTo?.Id ?? string.Empty,
+                ReplyToUserName = replyTo?.UserName ?? string.Empty,
+                ReplyToText = TrimToLimit(replyTo?.Text ?? string.Empty, 140),
+                Mentions = ExtractMentions(text, room.Participants)
             };
 
             if (!_roomManager.AddMessage(roomId, message)) return Forbid();
             return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Messages/{messageId}/Reactions")]
+        public ActionResult ToggleMessageReaction(string roomId, string messageId, [FromBody] string emoji)
+        {
+            if (string.IsNullOrWhiteSpace(emoji)) return BadRequest("Reaction is required.");
+
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+
+            return _roomManager.ToggleMessageReaction(roomId, messageId, CurrentUserId, emoji) ? Ok() : BadRequest("Unable to update reaction.");
         }
         [HttpGet("Rooms/{roomId}/Recap")]
         public ActionResult<RoomStats> GetRecap(string roomId)
@@ -682,6 +722,41 @@ namespace JellTogether.Plugin.Api
                 MediaType = GetJsonString(payload, "mediaType") ?? GetJsonString(payload, "MediaType") ?? string.Empty,
                 Overview = GetJsonString(payload, "overview") ?? GetJsonString(payload, "Overview") ?? string.Empty
             };
+        }
+
+        private static ChatMessageRequest ParseChatMessageRequest(JsonElement payload)
+        {
+            if (payload.ValueKind == JsonValueKind.String)
+            {
+                return new ChatMessageRequest { Text = payload.GetString() ?? string.Empty };
+            }
+
+            if (payload.ValueKind != JsonValueKind.Object) return new ChatMessageRequest();
+
+            return new ChatMessageRequest
+            {
+                Text = GetJsonString(payload, "text") ?? GetJsonString(payload, "Text") ?? string.Empty,
+                ReplyToMessageId = GetJsonString(payload, "replyToMessageId") ?? GetJsonString(payload, "ReplyToMessageId") ?? string.Empty
+            };
+        }
+
+        private static List<string> ExtractMentions(string text, IEnumerable<string> participants)
+        {
+            var tokens = Regex.Matches(text, @"@([\w.\-]+)")
+                .Select(match => match.Groups[1].Value)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            return participants
+                .Where(participant => tokens.Contains(participant) || tokens.Contains(participant.Split('@')[0]))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+        }
+
+        private static string TrimToLimit(string value, int limit)
+        {
+            value = value?.Trim() ?? string.Empty;
+            return value.Length <= limit ? value : value[..limit];
         }
 
         private static string? GetJsonString(JsonElement payload, string propertyName)

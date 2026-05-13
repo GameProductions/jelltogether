@@ -108,9 +108,15 @@ namespace JellTogether.Plugin.Services
 
     public class ChatMessage
     {
+        public string Id { get; set; } = Guid.NewGuid().ToString("N");
         public string UserId { get; set; } = string.Empty;
         public string UserName { get; set; } = string.Empty;
         public string Text { get; set; } = string.Empty;
+        public string ReplyToMessageId { get; set; } = string.Empty;
+        public string ReplyToUserName { get; set; } = string.Empty;
+        public string ReplyToText { get; set; } = string.Empty;
+        public List<string> Mentions { get; set; } = new();
+        public Dictionary<string, List<string>> Reactions { get; set; } = new();
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
     }
 
@@ -233,6 +239,37 @@ namespace JellTogether.Plugin.Services
                 if (string.IsNullOrWhiteSpace(nextName)) return false;
 
                 room.Name = nextName;
+                Touch(room);
+                return true;
+            }
+        }
+
+        public bool ToggleMessageReaction(string roomId, string messageId, string userId, string emoji)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room) || !room.Participants.Contains(userId)) return false;
+                var message = room.Messages.FirstOrDefault(m => m.Id == messageId);
+                if (message == null) return false;
+
+                emoji = TrimToLimit(emoji, 16);
+                if (string.IsNullOrWhiteSpace(emoji)) return false;
+                if (!message.Reactions.TryGetValue(emoji, out var users))
+                {
+                    users = new List<string>();
+                    message.Reactions[emoji] = users;
+                }
+
+                if (users.Contains(userId))
+                {
+                    users.Remove(userId);
+                    if (users.Count == 0) message.Reactions.Remove(emoji);
+                }
+                else
+                {
+                    users.Add(userId);
+                }
+
                 Touch(room);
                 return true;
             }
@@ -363,6 +400,20 @@ namespace JellTogether.Plugin.Services
                     room.BufferingUserIds.Remove(userId);
                     Touch(room);
                 }
+            }
+        }
+
+        public bool MoveSeat(string roomId, string userId, int seatIndex)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room) || !room.Participants.Contains(userId)) return false;
+                if (seatIndex < 0 || seatIndex >= 40) return false;
+                if (room.CinemaSeats.Any(seat => seat.Value == seatIndex && seat.Key != userId)) return false;
+
+                room.CinemaSeats[userId] = seatIndex;
+                Touch(room);
+                return true;
             }
         }
 
