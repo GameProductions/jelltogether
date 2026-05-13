@@ -213,6 +213,49 @@ class JellTogetherApp {
         return btn;
     }
 
+    prop(source, camelName, pascalName = null, fallback = undefined) {
+        if (!source || typeof source !== 'object') return fallback;
+        if (source[camelName] !== undefined) return source[camelName];
+        const nextPascal = pascalName || `${camelName.charAt(0).toUpperCase()}${camelName.slice(1)}`;
+        return source[nextPascal] !== undefined ? source[nextPascal] : fallback;
+    }
+
+    normalizeRoom(room) {
+        if (!room || typeof room !== 'object') return null;
+
+        const activePolls = this.prop(room, 'activePolls', null, []).map(poll => ({
+            id: this.prop(poll, 'id', null, ''),
+            question: this.prop(poll, 'question', null, ''),
+            options: this.prop(poll, 'options', null, []),
+            votes: this.prop(poll, 'votes', null, {}),
+            isClosed: this.prop(poll, 'isClosed', null, false)
+        }));
+
+        return {
+            ...room,
+            id: this.prop(room, 'id', null, ''),
+            name: this.prop(room, 'name', null, 'Untitled Party'),
+            roomCode: this.prop(room, 'roomCode', null, ''),
+            ownerId: this.prop(room, 'ownerId', null, ''),
+            participants: this.prop(room, 'participants', null, []),
+            coHostIds: this.prop(room, 'coHostIds', null, []),
+            permissions: this.prop(room, 'permissions', null, {}),
+            queue: this.prop(room, 'queue', null, []),
+            theories: this.prop(room, 'theories', null, []),
+            messages: this.prop(room, 'messages', null, []),
+            invitations: this.prop(room, 'invitations', null, []),
+            recentReactions: this.prop(room, 'recentReactions', null, []),
+            activePolls,
+            cinemaSeats: this.prop(room, 'cinemaSeats', null, {}),
+            currentTheme: this.prop(room, 'currentTheme', null, 'default'),
+            isPrivate: this.prop(room, 'isPrivate', null, false),
+            isHostOnlyControl: this.prop(room, 'isHostOnlyControl', null, false),
+            allowParticipantInvites: this.prop(room, 'allowParticipantInvites', null, true),
+            lastUpdated: this.prop(room, 'lastUpdated', null, new Date(0).toISOString()),
+            stats: this.prop(room, 'stats', null, {})
+        };
+    }
+
     showToast(message, tone = 'info') {
         const key = `${tone}:${message}`;
         if (this.activeToasts.has(key)) return;
@@ -306,11 +349,12 @@ class JellTogetherApp {
     async createRoomWithName(name) {
         if (!name || !name.trim()) return;
         try {
-            const room = await this.fetchJson('/jelltogether/Rooms', {
+            const room = this.normalizeRoom(await this.fetchJson('/jelltogether/Rooms', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(name.trim())
-            });
+            }));
+            if (!room?.id) throw new Error("Created room response did not include an id.");
             await this.joinRoom(room.id);
         } catch (e) {
             console.error("Create Room Error:", e);
@@ -320,7 +364,9 @@ class JellTogetherApp {
 
     async loadRooms() {
         try {
-            const rooms = await this.fetchJson('/jelltogether/Rooms');
+            const rooms = (await this.fetchJson('/jelltogether/Rooms'))
+                .map(room => this.normalizeRoom(room))
+                .filter(room => room?.id);
             this.renderRoomGrid(rooms);
         } catch (e) {
             console.error("Lobby Load Error:", e);
@@ -339,6 +385,8 @@ class JellTogetherApp {
         }
 
         rooms.forEach(room => {
+            if (!room?.id) return;
+
             const card = document.createElement('div');
             card.className = 'room-card';
             card.onclick = () => this.joinRoom(room.id);
@@ -357,12 +405,18 @@ class JellTogetherApp {
     }
 
     async joinRoom(roomId, inviteCode = null) {
+        if (!roomId) {
+            this.showToast("This room is missing an id. Refresh the page and try again.", 'error');
+            return;
+        }
+
         try {
             const url = `/jelltogether/Rooms/${encodeURIComponent(roomId)}/Join${inviteCode ? `?code=${encodeURIComponent(inviteCode)}` : ''}`;
             const joinResp = await this.request(url, { method: 'POST' });
             if (!joinResp.ok) throw new Error("Join failed");
 
-            this.currentRoom = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(roomId)}`);
+            this.currentRoom = this.normalizeRoom(await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(roomId)}`));
+            if (!this.currentRoom?.id) throw new Error("Room response did not include an id.");
             this.lastUpdate = this.currentRoom.lastUpdated || new Date(0).toISOString();
             this.reactionCount = this.currentRoom.recentReactions?.length || 0;
             this.resetRenderCaches();
@@ -386,7 +440,8 @@ class JellTogetherApp {
                 return;
             }
             if (!resp.ok) throw new Error("Code lookup failed");
-            const room = await resp.json();
+            const room = this.normalizeRoom(await resp.json());
+            if (!room?.id) throw new Error("Invite lookup response did not include an id.");
             this.joinRoom(room.id, code);
         } catch (e) {
             console.error("Code Join Error:", e);
@@ -446,7 +501,7 @@ class JellTogetherApp {
 
     async refreshRoom() {
         if (!this.currentRoom) return;
-        this.currentRoom = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}`);
+        this.currentRoom = this.normalizeRoom(await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}`));
         this.lastUpdate = this.currentRoom.lastUpdated || this.lastUpdate;
         this.updateUIState();
     }
@@ -741,7 +796,7 @@ class JellTogetherApp {
         try {
             const resp = await this.request(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Updates?since=${encodeURIComponent(this.lastUpdate)}`);
             if (resp.status === 200) {
-                this.currentRoom = await resp.json();
+                this.currentRoom = this.normalizeRoom(await resp.json());
                 this.lastUpdate = this.currentRoom.lastUpdated;
                 this.updateUIState();
             } else if (resp.status === 403 || resp.status === 404) {
