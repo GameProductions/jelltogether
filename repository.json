@@ -9,12 +9,12 @@
     "category": "Social",
     "versions": [
       {
-        "version": "1.1.1.0",
-        "changelog": "Expose the JellTogether page in Jellyfin navigation and fix embedded web asset loading.",
+        "version": "1.1.2.0",
+        "changelog": "Fix public companion redirects, invite links, QR access, and Discord Stage sync handling.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.1.1.0/jelltogether_1.1.1.0.zip",
-        "checksum": "E421BC261B4917BA8A474A91E7ABA94A",
-        "timestamp": "2026-05-12T18:48:12Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.1.2.0/jelltogether_1.1.2.0.zip",
+        "checksum": "B64BBE3E1CDB36583AF841E70F4D6F7A",
+        "timestamp": "2026-05-12T23:52:54Z"
       }
     ]
   }

@@ -4,6 +4,7 @@ using System.Security.Claims;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.WebUtilities;
 using JellTogether.Plugin.Services;
 
 namespace JellTogether.Plugin.Api
@@ -40,27 +41,32 @@ namespace JellTogether.Plugin.Api
     public class JellTogetherController : ControllerBase
     {
         private RoomManager _roomManager => Plugin.Instance?.RoomManager ?? throw new System.Exception("Plugin not initialized");
-        private string CurrentUserId => User.Identity?.Name ?? "Unknown";
+        private string CurrentUserId =>
+            User.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
+            User.FindFirst("sub")?.Value ??
+            User.FindFirst("uid")?.Value ??
+            User.Identity?.Name ??
+            "Unknown";
 
         [HttpGet]
         [AllowAnonymous]
         public IActionResult Open()
         {
-            return Redirect(CompanionUrl());
+            return Redirect(CompanionPageUrl());
         }
 
         [HttpGet("Companion")]
         [AllowAnonymous]
-        public IActionResult OpenCompanion()
+        public IActionResult OpenCompanion([FromQuery] string? code = null)
         {
-            return Redirect(CompanionUrl());
+            return Redirect(CompanionPageUrl(code));
         }
 
         [HttpGet("Invite/{code}")]
         [AllowAnonymous]
         public IActionResult OpenInvite(string code)
         {
-            return Redirect(CompanionUrl(code));
+            return Redirect(CompanionPageUrl(code));
         }
 
         [HttpGet("CurrentUser")]
@@ -90,8 +96,8 @@ namespace JellTogether.Plugin.Api
             var publicJellyfinUrl = NormalizeBaseUrl(request.PublicJellyfinUrl);
             var publicCompanionUrl = NormalizeBaseUrl(request.PublicCompanionUrl);
 
-            if (!IsValidPublicUrl(publicJellyfinUrl)) return BadRequest("Public Jellyfin URL must be a valid http(s) URL.");
-            if (!IsValidPublicUrl(publicCompanionUrl)) return BadRequest("Public companion URL must be a valid http(s) URL.");
+            if (!IsValidPublicUrl(publicJellyfinUrl)) return BadRequest("Public Jellyfin URL must be a valid HTTPS URL, or HTTP for localhost/private network testing.");
+            if (!IsValidPublicUrl(publicCompanionUrl)) return BadRequest("Public companion URL must be a valid HTTPS URL, or HTTP for localhost/private network testing.");
 
             var plugin = Plugin.Instance;
             if (plugin == null) return StatusCode(500, "Plugin not initialized.");
@@ -122,11 +128,20 @@ namespace JellTogether.Plugin.Api
         }
 
         [HttpGet("Rooms/ByCode/{code}")]
-        public ActionResult<JellTogetherRoom> GetRoomByCode(string code)
+        public ActionResult<object> GetRoomByCode(string code)
         {
+            if (string.IsNullOrWhiteSpace(code)) return BadRequest("Room code is required.");
+
             var room = _roomManager.GetRoomByCode(code);
             if (room == null) return NotFound();
-            return Ok(RoomForUser(room));
+            return Ok(new
+            {
+                id = room.Id,
+                name = room.Name,
+                roomCode = room.RoomCode,
+                isPrivate = room.IsPrivate,
+                participantCount = room.Participants.Count
+            });
         }
 
         [HttpPost("Rooms/{roomId}/TogglePrivacy")]
@@ -195,6 +210,11 @@ namespace JellTogether.Plugin.Api
         [HttpPost("Rooms/{roomId}/Trivia")]
         public ActionResult StartTrivia(string roomId, [FromBody] TriviaQuestion question)
         {
+            if (question == null) return BadRequest("Trivia payload is required.");
+            if (string.IsNullOrWhiteSpace(question.Question)) return BadRequest("Trivia question is required.");
+            if (question.Options == null) return BadRequest("Trivia options are required.");
+            if (question.Options.Count(o => !string.IsNullOrWhiteSpace(o)) < 2) return BadRequest("Trivia requires at least two options.");
+
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
             if (!CanManage(room)) return Forbid();
@@ -205,6 +225,10 @@ namespace JellTogether.Plugin.Api
         [HttpPost("Rooms/{roomId}/Invitations")]
         public ActionResult<JellTogetherInvite> CreateInvite(string roomId, [FromBody] CreateInviteRequest request)
         {
+            if (request == null) return BadRequest("Invite payload is required.");
+            if (request.HoursValid < 0) return BadRequest("Invite expiration cannot be negative.");
+            if (request.MaxUses < 0) return BadRequest("Invite use limit cannot be negative.");
+
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
 
@@ -253,6 +277,8 @@ namespace JellTogether.Plugin.Api
         [HttpPost("Rooms/{roomId}/Participants/{userId}/Permissions")]
         public ActionResult SetPermissions(string roomId, string userId, [FromBody] ParticipantPermissions permissions)
         {
+            if (permissions == null) return BadRequest("Permissions payload is required.");
+
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
 
@@ -287,6 +313,8 @@ namespace JellTogether.Plugin.Api
         [HttpPost("Rooms/{roomId}/TransferOwnership")]
         public ActionResult TransferOwnership(string roomId, [FromBody] string newOwnerId)
         {
+            if (string.IsNullOrWhiteSpace(newOwnerId)) return BadRequest("New owner id is required.");
+
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
 
@@ -304,6 +332,11 @@ namespace JellTogether.Plugin.Api
         [HttpPost("Rooms/{roomId}/Polls")]
         public ActionResult CreatePoll(string roomId, [FromBody] CreatePollRequest request)
         {
+            if (request == null) return BadRequest("Poll payload is required.");
+            if (string.IsNullOrWhiteSpace(request.Question)) return BadRequest("Poll question is required.");
+            if (request.Options == null) return BadRequest("Poll options are required.");
+            if (request.Options.Count(o => !string.IsNullOrWhiteSpace(o)) < 2) return BadRequest("Poll requires at least two options.");
+
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
 
@@ -316,6 +349,8 @@ namespace JellTogether.Plugin.Api
         [HttpPost("Rooms/{roomId}/Polls/{pollId}/Vote")]
         public ActionResult Vote(string roomId, string pollId, [FromBody] string option)
         {
+            if (string.IsNullOrWhiteSpace(option)) return BadRequest("Poll option is required.");
+
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
 
@@ -327,6 +362,8 @@ namespace JellTogether.Plugin.Api
         [HttpPost("Rooms/{roomId}/Webhook")]
         public ActionResult SetWebhook(string roomId, [FromBody] string url)
         {
+            if (string.IsNullOrWhiteSpace(url)) return BadRequest("Webhook URL is required.");
+
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
 
@@ -339,6 +376,8 @@ namespace JellTogether.Plugin.Api
         [HttpPost("Rooms/{roomId}/Theme")]
         public ActionResult SetTheme(string roomId, [FromBody] string theme)
         {
+            if (string.IsNullOrWhiteSpace(theme)) return BadRequest("Theme is required.");
+
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
 
@@ -374,6 +413,8 @@ namespace JellTogether.Plugin.Api
         [HttpPost("Rooms/{roomId}/Messages")]
         public ActionResult AddMessage(string roomId, [FromBody] string text)
         {
+            if (string.IsNullOrWhiteSpace(text)) return BadRequest("Message text is required.");
+
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
             if (!room.Participants.Contains(CurrentUserId)) return Forbid();
@@ -400,6 +441,10 @@ namespace JellTogether.Plugin.Api
         [HttpPost("Rooms/{roomId}/DiscordStage")]
         public ActionResult SetDiscordStage(string roomId, [FromBody] DiscordStageRequest request)
         {
+            if (request == null) return BadRequest("Discord stage payload is required.");
+            if (string.IsNullOrWhiteSpace(request.BotToken)) return BadRequest("Discord bot token is required.");
+            if (string.IsNullOrWhiteSpace(request.StageId)) return BadRequest("Discord stage id is required.");
+
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
             if (room.OwnerId != CurrentUserId) return Forbid();
@@ -411,6 +456,8 @@ namespace JellTogether.Plugin.Api
         [HttpPost("Rooms/{roomId}/SyncStage")]
         public async Task<ActionResult> SyncStage(string roomId, [FromBody] string title)
         {
+            if (string.IsNullOrWhiteSpace(title)) return BadRequest("Discord stage title is required.");
+
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
             if (!CanManage(room)) return Forbid();
@@ -445,14 +492,18 @@ namespace JellTogether.Plugin.Api
             return room;
         }
 
-        private string CompanionUrl(string? code = null)
+        private string CompanionPageUrl(string? code = null)
         {
             var configuredCompanion = NormalizeBaseUrl(Plugin.Instance?.Configuration.PublicCompanionUrl);
             if (!string.IsNullOrEmpty(configuredCompanion))
             {
-                return string.IsNullOrWhiteSpace(code)
-                    ? configuredCompanion
-                    : $"{configuredCompanion}/Invite/{Uri.EscapeDataString(code.Trim())}";
+                return CompanionPageUrlFromConfiguredCompanion(configuredCompanion, code);
+            }
+
+            var configuredJellyfin = NormalizeBaseUrl(Plugin.Instance?.Configuration.PublicJellyfinUrl);
+            if (!string.IsNullOrEmpty(configuredJellyfin))
+            {
+                return WebConfigurationPageUrl(configuredJellyfin, code);
             }
 
             var basePath = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
@@ -468,8 +519,57 @@ namespace JellTogether.Plugin.Api
         private static bool IsValidPublicUrl(string value)
         {
             if (string.IsNullOrEmpty(value)) return true;
-            return Uri.TryCreate(value, UriKind.Absolute, out var uri) &&
-                (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
+            if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)) return false;
+            if (uri.Scheme == Uri.UriSchemeHttps) return true;
+            return uri.Scheme == Uri.UriSchemeHttp && IsLocalOrPrivateHost(uri.Host);
+        }
+
+        private static string AddInviteCode(string url, string? code)
+        {
+            if (string.IsNullOrWhiteSpace(code)) return url;
+            return QueryHelpers.AddQueryString(url, "code", code.Trim());
+        }
+
+        private static string CompanionPageUrlFromConfiguredCompanion(string configuredCompanion, string? code)
+        {
+            if (!Uri.TryCreate(configuredCompanion, UriKind.Absolute, out var uri))
+            {
+                return AddInviteCode(configuredCompanion, code);
+            }
+
+            if (uri.AbsolutePath.Equals("/jelltogether/Companion", StringComparison.OrdinalIgnoreCase) ||
+                uri.AbsolutePath.StartsWith("/jelltogether/Invite/", StringComparison.OrdinalIgnoreCase))
+            {
+                return WebConfigurationPageUrl(uri.GetLeftPart(UriPartial.Authority), code);
+            }
+
+            return AddInviteCode(configuredCompanion, code);
+        }
+
+        private static string WebConfigurationPageUrl(string baseUrl, string? code)
+        {
+            var query = string.IsNullOrWhiteSpace(code) ? string.Empty : $"?code={Uri.EscapeDataString(code.Trim())}";
+            return $"{NormalizeBaseUrl(baseUrl)}/web/{query}#/configurationpage?name=jelltogether";
+        }
+
+        private static bool IsLocalOrPrivateHost(string host)
+        {
+            return host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+                host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+                host.Equals("::1", StringComparison.OrdinalIgnoreCase) ||
+                host.StartsWith("10.", StringComparison.OrdinalIgnoreCase) ||
+                host.StartsWith("192.168.", StringComparison.OrdinalIgnoreCase) ||
+                IsPrivate172Host(host);
+        }
+
+        private static bool IsPrivate172Host(string host)
+        {
+            var parts = host.Split('.');
+            return parts.Length == 4 &&
+                parts[0] == "172" &&
+                int.TryParse(parts[1], out var second) &&
+                second >= 16 &&
+                second <= 31;
         }
 
         private bool IsElevatedUser()

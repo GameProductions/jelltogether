@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace JellTogether.Plugin.Services
 {
@@ -32,6 +33,7 @@ namespace JellTogether.Plugin.Services
         public string CurrentTheme { get; set; } = "default";
         public bool IsHostOnlyControl { get; set; } = false;
         public string? DiscordWebhookUrl { get; set; }
+        [JsonIgnore]
         public string? DiscordBotToken { get; set; }
         public string? DiscordStageId { get; set; }
         public List<string> RecentReactions { get; set; } = new();
@@ -427,7 +429,7 @@ namespace JellTogether.Plugin.Services
             {
                 if (_rooms.TryGetValue(roomId, out var room))
                 {
-                    var cleanedOptions = options
+                    var cleanedOptions = (options ?? new List<string>())
                         .Select(o => TrimToLimit(o, 120))
                         .Where(o => !string.IsNullOrWhiteSpace(o))
                         .Distinct()
@@ -453,7 +455,7 @@ namespace JellTogether.Plugin.Services
                     if (poll != null && !poll.IsClosed)
                     {
                         foreach (var votes in poll.Votes.Values) votes.Remove(userId);
-                        if (poll.Votes.ContainsKey(option)) poll.Votes[option].Add(userId);
+                        if (!string.IsNullOrWhiteSpace(option) && poll.Votes.ContainsKey(option)) poll.Votes[option].Add(userId);
                         Touch(room);
                     }
                 }
@@ -516,24 +518,29 @@ namespace JellTogether.Plugin.Services
 
         public async Task UpdateDiscordStage(string roomId, string title)
         {
-            JellTogetherRoom? room;
+            string? botToken;
+            string? stageId;
             lock (_roomLock)
             {
-                room = _rooms.TryGetValue(roomId, out var existing) ? CloneRoom(existing) : null;
+                if (!_rooms.TryGetValue(roomId, out var room))
+                {
+                    return;
+                }
+
+                botToken = room.DiscordBotToken;
+                stageId = room.DiscordStageId;
             }
 
-            if (room != null &&
-                !string.IsNullOrEmpty(room.DiscordBotToken) &&
-                !string.IsNullOrEmpty(room.DiscordStageId))
+            if (!string.IsNullOrEmpty(botToken) && !string.IsNullOrEmpty(stageId))
             {
                 try
                 {
-                    var url = $"https://discord.com/api/v10/channels/{room.DiscordStageId}";
+                    var url = $"https://discord.com/api/v10/channels/{stageId}";
                     var payload = new { topic = $"🍿 Watching: {title}" };
                     var json = JsonSerializer.Serialize(payload);
 
                     var request = new HttpRequestMessage(new HttpMethod("PATCH"), url);
-                    request.Headers.Add("Authorization", $"Bot {room.DiscordBotToken}");
+                    request.Headers.Add("Authorization", $"Bot {botToken}");
                     request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
                     await _httpClient.SendAsync(request);
@@ -583,8 +590,16 @@ namespace JellTogether.Plugin.Services
             {
                 if (_rooms.TryGetValue(roomId, out var room))
                 {
+                    var cleanedOptions = (question.Options ?? new List<string>())
+                        .Select(o => TrimToLimit(o, 120))
+                        .Where(o => !string.IsNullOrWhiteSpace(o))
+                        .Distinct()
+                        .Take(6)
+                        .ToList();
+                    if (string.IsNullOrWhiteSpace(question.Question) || cleanedOptions.Count < 2) return;
+
                     question.Question = TrimToLimit(question.Question, 200);
-                    question.Options = question.Options.Select(o => TrimToLimit(o, 120)).Take(6).ToList();
+                    question.Options = cleanedOptions;
                     room.Trivia.Add(question);
                     Touch(room);
                 }

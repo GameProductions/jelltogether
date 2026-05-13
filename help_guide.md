@@ -9,7 +9,8 @@ Welcome to JellTogether!
 
 ## Public Access
 - Administrators can set a public Jellyfin URL and public companion URL in the companion sidebar.
-- If you run your own domain, point it at your Jellyfin companion route and save that URL as the public companion URL.
+- Save your public Jellyfin base URL, such as `https://jellyfin.example.com`, to generate public companion links automatically.
+- If you run a dedicated companion route, save the full companion page URL, such as `https://jellyfin.example.com/jelltogether/Companion`, as the public companion URL.
 
 ## Host Controls
 - Lock controls to prevent skipping.

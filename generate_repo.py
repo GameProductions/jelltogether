@@ -3,12 +3,12 @@ import json
 import hashlib
 import zipfile
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 
 # --- CONFIGURATION ---
 GITHUB_USER = "GameProductions"
 REPO_NAME = "jelltogether"
-VERSION = "1.1.1.0"
+VERSION = "1.1.2.0"
 TARGET_ABI = "10.11.8.0"
 GUID = "f9e1e2d3-a4b5-4c6d-8e9f-0a1b2c3d4e5f"
 # ---------------------
@@ -18,6 +18,8 @@ PUBLISH_DIR = os.path.join(BASE_DIR, "bin", "Release", "net9.0", "publish")
 ZIP_NAME = f"jelltogether_{VERSION}.zip"
 ZIP_PATH = os.path.join(BASE_DIR, ZIP_NAME)
 REPO_JSON_PATH = os.path.join(BASE_DIR, "repository.json")
+MANIFEST_JSON_PATH = os.path.join(BASE_DIR, "manifest.json")
+CHANGELOG = "Fix public companion redirects, invite links, QR access, and Discord Stage sync handling."
 
 def run_command(cmd):
     print(f"Running: {cmd}")
@@ -40,48 +42,73 @@ def create_zip(source_dir, output_path):
                     arcname = os.path.relpath(file_path, source_dir)
                     zipf.write(file_path, arcname)
 
-def generate_repo_json(checksum):
-    print("Generating repository.json...")
+def plugin_manifest_entry(checksum, timestamp, image_key, image_value):
     source_url = f"https://github.com/{GITHUB_USER}/{REPO_NAME}/releases/download/v{VERSION}/{ZIP_NAME}"
+    return {
+        "guid": GUID,
+        "name": "JellTogether",
+        image_key: image_value,
+        "description": "The ultimate social watch party plugin for Jellyfin.",
+        "overview": "Host high-fidelity watch parties with virtual cinema seats, theory boards, and synchronized playback.",
+        "owner": GITHUB_USER,
+        "category": "Social",
+        "versions": [
+            {
+                "version": f"{VERSION}",
+                "changelog": CHANGELOG,
+                "targetAbi": TARGET_ABI,
+                "sourceUrl": source_url,
+                "checksum": checksum,
+                "timestamp": timestamp
+            }
+        ]
+    }
+
+def write_json(path, data):
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+
+def generate_metadata_json(checksum):
+    print("Generating manifest metadata...")
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     image_url = f"https://raw.githubusercontent.com/{GITHUB_USER}/{REPO_NAME}/main/banner.png"
-    
+
     repo_data = [
+        plugin_manifest_entry(checksum, timestamp, "imageUrl", image_url)
+    ]
+
+    manifest_data = [
         {
-            "guid": GUID,
-            "name": "JellTogether",
-            "imageUrl": image_url,
-            "description": "The ultimate social watch party plugin for Jellyfin.",
-            "overview": "Host high-fidelity watch parties with virtual cinema seats, theory boards, and synchronized playback.",
-            "owner": GITHUB_USER,
-            "category": "Social",
-            "versions": [
-                {
-                    "version": f"{VERSION}",
-                    "changelog": "Expose the JellTogether page in Jellyfin navigation and fix embedded web asset loading.",
-                    "targetAbi": TARGET_ABI,
-                    "sourceUrl": source_url,
-                    "checksum": checksum,
-                    "timestamp": datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-                }
-            ]
+            **plugin_manifest_entry(checksum, timestamp, "imagePath", "logo.png"),
+            "imageUrl": image_url
         }
     ]
-    
-    with open(REPO_JSON_PATH, "w") as f:
-        json.dump(repo_data, f, indent=2)
-    print(f"Success! {REPO_JSON_PATH} created.")
+
+    write_json(REPO_JSON_PATH, repo_data)
+    write_json(MANIFEST_JSON_PATH, manifest_data)
+    print(f"Success! {REPO_JSON_PATH} and {MANIFEST_JSON_PATH} created.")
+
+def write_package_manifest(path):
+    print("Writing package manifest...")
+    image_url = f"https://raw.githubusercontent.com/{GITHUB_USER}/{REPO_NAME}/main/banner.png"
+    package_data = [
+        {
+            **plugin_manifest_entry("", "", "imagePath", "logo.png"),
+            "imageUrl": image_url
+        }
+    ]
+    write_json(path, package_data)
 
 def main():
     try:
         # 1. Build the project
         run_command("dotnet publish -c Release")
         
-        # 2. Copy manifest.json to publish folder if missing
-        shutil_manifest = os.path.join(BASE_DIR, "manifest.json")
+        # 2. Write package metadata. The repository metadata below carries the
+        # real archive checksum; the package manifest avoids a stale self-checksum.
         dest_manifest = os.path.join(PUBLISH_DIR, "manifest.json")
-        if os.path.exists(shutil_manifest):
-            import shutil
-            shutil.copy(shutil_manifest, dest_manifest)
+        write_package_manifest(dest_manifest)
         
         # 3. Create the ZIP
         create_zip(PUBLISH_DIR, ZIP_PATH)
@@ -90,8 +117,8 @@ def main():
         checksum = calculate_md5(ZIP_PATH)
         print(f"MD5: {checksum}")
         
-        # 5. Generate repository.json
-        generate_repo_json(checksum)
+        # 5. Generate repository metadata
+        generate_metadata_json(checksum)
         
         print("\n--- NEXT STEPS ---")
         print(f"1. Create a GitHub Release named 'v{VERSION}'.")

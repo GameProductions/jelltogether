@@ -45,14 +45,16 @@ class JellTogetherApp {
     }
 
     companionUrl(code = null) {
-        const origin = this.publicCompanionOrigin || window.location.origin;
-        const url = new URL(this.publicCompanionOrigin ? '/' : '/jelltogether/Companion', origin);
-        if (code) {
-            url.pathname = this.publicCompanionOrigin
-                ? `/Invite/${encodeURIComponent(code)}`
-                : `/jelltogether/Invite/${encodeURIComponent(code)}`;
-        }
-        return url.toString();
+        const base = this.publicCompanionOrigin ||
+            (this.publicJellyfinUrl ? `${this.publicJellyfinUrl.replace(/\/+$/, '')}/jelltogether/Companion` : `${window.location.origin}/jelltogether/Companion`);
+        return this.addInviteCode(base, code);
+    }
+
+    addInviteCode(url, code = null) {
+        if (!code) return url;
+        const next = new URL(url, window.location.origin);
+        next.searchParams.set('code', code);
+        return next.toString();
     }
 
     async loadSettings() {
