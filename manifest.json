@@ -9,12 +9,12 @@
     "category": "Social",
     "versions": [
       {
-        "version": "1.1.4.0",
-        "changelog": "Stop bundling Jellyfin server assemblies so plugin pages register against the host contracts.",
+        "version": "1.1.5.0",
+        "changelog": "Fix Jellyfin configuration-page markup so the JellTogether companion opens in the web UI.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.1.4.0/jelltogether_1.1.4.0.zip",
-        "checksum": "C972D5EE0B99C335C6C87B7C59DD873B",
-        "timestamp": "2026-05-13T02:25:45Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.1.5.0/jelltogether_1.1.5.0.zip",
+        "checksum": "23ECD6A3714598C06C1FFC66C0E94F9D",
+        "timestamp": "2026-05-13T02:30:41Z"
       }
     ],
     "imageUrl": "https://raw.githubusercontent.com/GameProductions/jelltogether/main/banner.png"
