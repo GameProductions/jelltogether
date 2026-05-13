@@ -43,7 +43,7 @@ def create_zip(source_dir, output_path):
                     zipf.write(file_path, arcname)
 
 def plugin_manifest_entry(checksum, timestamp, image_key, image_value):
-    source_url = f"https://github.com/{GITHUB_USER}/{REPO_NAME}/releases/download/v{VERSION}/{ZIP_NAME}"
+    source_url = f"https://raw.githubusercontent.com/{GITHUB_USER}/{REPO_NAME}/main/{ZIP_NAME}"
     return {
         "guid": GUID,
         "name": "JellTogether",
@@ -121,10 +121,8 @@ def main():
         generate_metadata_json(checksum)
         
         print("\n--- NEXT STEPS ---")
-        print(f"1. Create a GitHub Release named 'v{VERSION}'.")
-        print(f"2. Upload '{ZIP_NAME}' to the release assets.")
-        print(f"3. Host 'repository.json' (e.g., on GitHub Pages or as a raw file).")
-        print("4. Add your 'repository.json' URL to Jellyfin > Dashboard > Plugins > Repositories.")
+        print(f"1. Commit and push '{ZIP_NAME}' and 'repository.json'.")
+        print("2. Add your raw 'repository.json' URL to Jellyfin > Dashboard > Plugins > Repositories.")
         
     except Exception as e:
         print(f"Error: {e}")
