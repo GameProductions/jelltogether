@@ -32,6 +32,12 @@ namespace JellTogether.Plugin
             {
                 new PluginPageInfo
                 {
+                    Name = "jelltogether-settings",
+                    DisplayName = "JellTogether",
+                    EmbeddedResourcePath = WebResourcePrefix + ".jelltogether-settings.html"
+                },
+                new PluginPageInfo
+                {
                     Name = "jelltogether",
                     DisplayName = "JellTogether",
                     EmbeddedResourcePath = WebResourcePrefix + ".jelltogether.html",
@@ -43,6 +49,11 @@ namespace JellTogether.Plugin
                 {
                     Name = "jelltogether.css",
                     EmbeddedResourcePath = WebResourcePrefix + ".jelltogether.css"
+                },
+                new PluginPageInfo
+                {
+                    Name = "jelltogether-settings.js",
+                    EmbeddedResourcePath = WebResourcePrefix + ".jelltogether-settings.js"
                 },
                 new PluginPageInfo
                 {

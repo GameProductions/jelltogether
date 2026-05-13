@@ -76,7 +76,7 @@
                 <section class="content-section">
                     <div class="section-heading">
                         <h3>Up Next</h3>
-                        <button class="secondary-command compact" onclick="app.addToQueue()">Add to Queue</button>
+                        <button id="btn-add-queue" class="secondary-command compact" onclick="app.addToQueue()">Add to Queue</button>
                     </div>
                     <div id="queue-panel" class="queue-panel">
                         <div class="loading">Queue is empty.</div>
@@ -93,18 +93,6 @@
                 </div>
                 <div class="status-dot" title="Connected"></div>
             </header>
-
-            <div id="public-access-settings" class="admin-group" style="display: none;">
-                <div class="section-label">Public Access</div>
-                <label class="field-label" for="public-jellyfin-url">Public Jellyfin URL</label>
-                <input type="url" id="public-jellyfin-url" placeholder="Public Jellyfin URL" class="chat-input">
-                <input type="hidden" id="public-companion-url">
-                <div class="field-label">Companion URL</div>
-                <button type="button" id="public-companion-pill" class="copy-pill" onclick="app.copyCompanionLink()">Set a public Jellyfin URL</button>
-                <div class="split-actions">
-                    <button class="primary-command" onclick="app.savePublicAccessSettings()">Save</button>
-                </div>
-            </div>
 
             <nav id="sidebar-tabs" class="sidebar-tabs" style="display: none;" aria-label="Party management sections">
                 <button type="button" class="sidebar-tab active" data-tab="chat" onclick="app.showSidebarTab('chat')">Chat</button>
@@ -141,6 +129,7 @@
                     <div class="section-label">Room</div>
                     <div class="room-management-grid">
                         <button class="secondary-command compact" onclick="app.generateAdvancedInvite()">Invite Rules</button>
+                        <button id="btn-toggle-queue-voting" class="secondary-command compact" onclick="app.toggleQueueVoting()">Queue Voting</button>
                         <button class="danger-command compact" onclick="app.deleteRoom()">Delete Room</button>
                     </div>
                     <div class="room-note">Edit the room name directly in the page title.</div>

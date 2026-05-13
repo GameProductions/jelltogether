@@ -1,0 +1,59 @@
+<div id="jelltogetherSettingsPage" data-role="page" class="page type-interior pluginConfigurationPage jelltogether-page settings-page">
+    <link rel="stylesheet" href="configurationpage?name=jelltogether.css" onerror="this.onerror=null;this.href='jelltogether.css';">
+    <div class="settings-shell">
+        <header class="settings-header">
+            <div>
+                <div class="eyebrow">JellTogether</div>
+                <h1>Global Settings</h1>
+            </div>
+            <button class="primary-command" onclick="settingsApp.save()">Save Settings</button>
+        </header>
+
+        <section class="settings-section">
+            <div class="section-label">Public Access</div>
+            <label class="field-label" for="settings-public-jellyfin-url">Public Jellyfin URL</label>
+            <input type="url" id="settings-public-jellyfin-url" class="glass-input" placeholder="https://jellyfin.example.com">
+            <div class="field-label">Generated Companion URL</div>
+            <button type="button" id="settings-companion-pill" class="copy-pill" onclick="settingsApp.copyCompanionUrl()">Set a public Jellyfin URL</button>
+        </section>
+
+        <section class="settings-section">
+            <div class="settings-section-heading">
+                <div>
+                    <div class="section-label">Library Access</div>
+                    <p>Choose which Jellyfin libraries JellTogether can search when hosts add media to a queue.</p>
+                </div>
+                <button class="secondary-command compact" onclick="settingsApp.loadLibraries()">Refresh</button>
+            </div>
+            <div id="settings-library-list" class="library-list">
+                <div class="loading">Loading libraries...</div>
+            </div>
+        </section>
+
+        <section class="settings-section">
+            <div class="section-label">System Defaults</div>
+            <label class="toggle-row settings-toggle">
+                <input type="checkbox" id="settings-queue-voting">
+                <span>Enable queue voting in new rooms</span>
+            </label>
+            <label class="toggle-row settings-toggle">
+                <input type="checkbox" id="settings-participant-queue">
+                <span>Allow participants to add queue items</span>
+            </label>
+            <label class="toggle-row settings-toggle">
+                <input type="checkbox" id="settings-participant-invites">
+                <span>Allow participant invites in new rooms</span>
+            </label>
+            <label class="toggle-row settings-toggle">
+                <input type="checkbox" id="settings-persist-history">
+                <span>Persist room state between server restarts</span>
+            </label>
+            <label class="modal-field">
+                <span>Default invite expiration hours</span>
+                <input type="number" min="0" max="720" id="settings-invite-hours" class="glass-input">
+            </label>
+        </section>
+    </div>
+
+    <script src="configurationpage?name=jelltogether-settings.js" onerror="this.onerror=null;this.src='jelltogether-settings.js';"></script>
+</div>

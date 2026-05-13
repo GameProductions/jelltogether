@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Security.Claims;
+using System.Text.Json;
 using MediaBrowser.Common.Api;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -35,6 +36,27 @@ namespace JellTogether.Plugin.Api
     {
         public string PublicJellyfinUrl { get; set; } = string.Empty;
         public string PublicCompanionUrl { get; set; } = string.Empty;
+    }
+
+    public class GlobalSettingsRequest
+    {
+        public string PublicJellyfinUrl { get; set; } = string.Empty;
+        public string PublicCompanionUrl { get; set; } = string.Empty;
+        public List<string> EnabledLibraryIds { get; set; } = new();
+        public bool AllowQueueVotingByDefault { get; set; } = true;
+        public bool AllowParticipantQueueAdds { get; set; } = true;
+        public bool AllowParticipantInvitesByDefault { get; set; } = true;
+        public bool PersistRoomHistory { get; set; } = true;
+        public int DefaultInviteExpirationHours { get; set; } = 24;
+    }
+
+    public class QueueItemRequest
+    {
+        public string Title { get; set; } = string.Empty;
+        public string MediaId { get; set; } = string.Empty;
+        public string LibraryId { get; set; } = string.Empty;
+        public string MediaType { get; set; } = string.Empty;
+        public string Overview { get; set; } = string.Empty;
     }
 
     [ApiController]
@@ -85,6 +107,12 @@ namespace JellTogether.Plugin.Api
             {
                 publicJellyfinUrl = NormalizeBaseUrl(config?.PublicJellyfinUrl),
                 publicCompanionUrl = NormalizeBaseUrl(config?.PublicCompanionUrl),
+                enabledLibraryIds = config?.EnabledLibraryIds ?? new List<string>(),
+                allowQueueVotingByDefault = config?.AllowQueueVotingByDefault ?? true,
+                allowParticipantQueueAdds = config?.AllowParticipantQueueAdds ?? true,
+                allowParticipantInvitesByDefault = config?.AllowParticipantInvitesByDefault ?? true,
+                persistRoomHistory = config?.PersistRoomHistory ?? true,
+                defaultInviteExpirationHours = config?.DefaultInviteExpirationHours ?? 24,
                 canSavePublicAccessSettings = IsElevatedUser()
             });
         }
@@ -111,6 +139,60 @@ namespace JellTogether.Plugin.Api
             var config = plugin.Configuration;
             config.PublicJellyfinUrl = publicJellyfinUrl;
             config.PublicCompanionUrl = publicCompanionUrl;
+            plugin.SaveConfiguration(config);
+            return Ok();
+        }
+
+        [HttpGet("GlobalSettings")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        public ActionResult<object> GetGlobalSettings()
+        {
+            var config = Plugin.Instance?.Configuration;
+            return Ok(new
+            {
+                publicJellyfinUrl = NormalizeBaseUrl(config?.PublicJellyfinUrl),
+                publicCompanionUrl = NormalizeBaseUrl(config?.PublicCompanionUrl),
+                enabledLibraryIds = config?.EnabledLibraryIds ?? new List<string>(),
+                allowQueueVotingByDefault = config?.AllowQueueVotingByDefault ?? true,
+                allowParticipantQueueAdds = config?.AllowParticipantQueueAdds ?? true,
+                allowParticipantInvitesByDefault = config?.AllowParticipantInvitesByDefault ?? true,
+                persistRoomHistory = config?.PersistRoomHistory ?? true,
+                defaultInviteExpirationHours = config?.DefaultInviteExpirationHours ?? 24
+            });
+        }
+
+        [HttpPost("GlobalSettings")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        public ActionResult SaveGlobalSettings([FromBody] GlobalSettingsRequest request)
+        {
+            if (request == null) return BadRequest("Settings payload is required.");
+
+            var publicJellyfinUrl = NormalizeBaseUrl(request.PublicJellyfinUrl);
+            var publicCompanionUrl = NormalizeBaseUrl(request.PublicCompanionUrl);
+            if (string.IsNullOrEmpty(publicCompanionUrl) && !string.IsNullOrEmpty(publicJellyfinUrl))
+            {
+                publicCompanionUrl = $"{publicJellyfinUrl}/jelltogether/Companion";
+            }
+
+            if (!IsValidPublicUrl(publicJellyfinUrl)) return BadRequest("Public Jellyfin URL must be a valid HTTPS URL, or HTTP for localhost/private network testing.");
+            if (!IsValidPublicUrl(publicCompanionUrl)) return BadRequest("Public companion URL must be a valid HTTPS URL, or HTTP for localhost/private network testing.");
+
+            var plugin = Plugin.Instance;
+            if (plugin == null) return StatusCode(500, "Plugin not initialized.");
+
+            var config = plugin.Configuration;
+            config.PublicJellyfinUrl = publicJellyfinUrl;
+            config.PublicCompanionUrl = publicCompanionUrl;
+            config.EnabledLibraryIds = request.EnabledLibraryIds
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            config.AllowQueueVotingByDefault = request.AllowQueueVotingByDefault;
+            config.AllowParticipantQueueAdds = request.AllowParticipantQueueAdds;
+            config.AllowParticipantInvitesByDefault = request.AllowParticipantInvitesByDefault;
+            config.PersistRoomHistory = request.PersistRoomHistory;
+            config.DefaultInviteExpirationHours = Math.Clamp(request.DefaultInviteExpirationHours, 0, 24 * 30);
             plugin.SaveConfiguration(config);
             return Ok();
         }
@@ -203,14 +285,46 @@ namespace JellTogether.Plugin.Api
         }
 
         [HttpPost("Rooms/{roomId}/Queue")]
-        public ActionResult AddToQueue(string roomId, [FromBody] string title)
+        public ActionResult AddToQueue(string roomId, [FromBody] JsonElement payload)
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
             if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+            if (!CanManage(room) && Plugin.Instance?.Configuration.AllowParticipantQueueAdds == false) return Forbid();
+
+            var request = ParseQueueItemRequest(payload);
+            var allowedLibraryIds = Plugin.Instance?.Configuration.EnabledLibraryIds ?? new List<string>();
+            if (!string.IsNullOrWhiteSpace(request.LibraryId) &&
+                allowedLibraryIds.Count > 0 &&
+                !allowedLibraryIds.Contains(request.LibraryId, StringComparer.OrdinalIgnoreCase))
+            {
+                return Forbid();
+            }
+
+            var title = request.Title;
             if (string.IsNullOrWhiteSpace(title)) return BadRequest("Queue title is required.");
-            _roomManager.AddToQueue(roomId, title, CurrentUserId);
+            _roomManager.AddToQueue(roomId, title, CurrentUserId, request.MediaId, request.LibraryId, request.MediaType, request.Overview);
             return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Queue/{itemId}/Vote")]
+        public ActionResult ToggleQueueVote(string roomId, string itemId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+
+            return _roomManager.ToggleQueueVote(roomId, itemId, CurrentUserId) ? Ok() : Forbid();
+        }
+
+        [HttpPost("Rooms/{roomId}/Queue/{itemId}/Move")]
+        public ActionResult MoveQueueItem(string roomId, string itemId, [FromBody] int direction)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManage(room)) return Forbid();
+
+            return _roomManager.MoveQueueItem(roomId, itemId, direction, CurrentUserId) ? Ok() : BadRequest("Unable to move queue item.");
         }
 
         [HttpDelete("Rooms/{roomId}/Queue/{itemId}")]
@@ -297,6 +411,17 @@ namespace JellTogether.Plugin.Api
             if (room.OwnerId != CurrentUserId) return Forbid();
 
             _roomManager.ToggleParticipantInvites(roomId);
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/ToggleQueueVoting")]
+        public ActionResult ToggleQueueVoting(string roomId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (room.OwnerId != CurrentUserId) return Forbid();
+
+            _roomManager.ToggleQueueVoting(roomId);
             return Ok();
         }
 
@@ -538,6 +663,32 @@ namespace JellTogether.Plugin.Api
             }
 
             return room;
+        }
+
+        private static QueueItemRequest ParseQueueItemRequest(JsonElement payload)
+        {
+            if (payload.ValueKind == JsonValueKind.String)
+            {
+                return new QueueItemRequest { Title = payload.GetString() ?? string.Empty };
+            }
+
+            if (payload.ValueKind != JsonValueKind.Object) return new QueueItemRequest();
+
+            return new QueueItemRequest
+            {
+                Title = GetJsonString(payload, "title") ?? GetJsonString(payload, "Title") ?? string.Empty,
+                MediaId = GetJsonString(payload, "mediaId") ?? GetJsonString(payload, "MediaId") ?? string.Empty,
+                LibraryId = GetJsonString(payload, "libraryId") ?? GetJsonString(payload, "LibraryId") ?? string.Empty,
+                MediaType = GetJsonString(payload, "mediaType") ?? GetJsonString(payload, "MediaType") ?? string.Empty,
+                Overview = GetJsonString(payload, "overview") ?? GetJsonString(payload, "Overview") ?? string.Empty
+            };
+        }
+
+        private static string? GetJsonString(JsonElement payload, string propertyName)
+        {
+            return payload.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : null;
         }
 
         private IActionResult StandaloneCompanion(string? code = null)

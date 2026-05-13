@@ -1,5 +1,10 @@
 # JellTogether Changelog
 
+## [2026-05-13] - Global settings and library queue search
+- Added a global settings page for public access URLs, library access, and system-wide JellTogether defaults.
+- Replaced manual queue title entry with Jellyfin library search scoped to selected libraries.
+- Added host queue voting controls and host queue reordering.
+
 ## [2026-05-13] - People tab and access label polish
 - Improved People tab participant action buttons so room state controls have enough space and clearer visual states.
 - Added explicit labels for the public Jellyfin URL, generated companion URL, and invite code sections.

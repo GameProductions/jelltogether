@@ -3,6 +3,9 @@ class JellTogetherApp {
         this.publicJellyfinUrl = "";
         this.publicCompanionOrigin = "";
         this.canSavePublicAccessSettings = false;
+        this.enabledLibraryIds = [];
+        this.allowQueueVotingByDefault = true;
+        this.allowParticipantQueueAdds = true;
         this.currentRoom = null;
         this.currentUser = "Unknown";
         this.lastUpdate = new Date(0).toISOString();
@@ -66,6 +69,9 @@ class JellTogetherApp {
             const settings = await this.fetchJson('/jelltogether/Settings');
             this.publicJellyfinUrl = settings.publicJellyfinUrl || "";
             this.publicCompanionOrigin = settings.publicCompanionUrl || "";
+            this.enabledLibraryIds = settings.enabledLibraryIds || [];
+            this.allowQueueVotingByDefault = settings.allowQueueVotingByDefault !== false;
+            this.allowParticipantQueueAdds = settings.allowParticipantQueueAdds !== false;
             this.canSavePublicAccessSettings = settings.canSavePublicAccessSettings === true;
         } catch (e) {
             console.error("Settings Load Error:", e);
@@ -251,7 +257,10 @@ class JellTogetherApp {
             id: this.prop(item, 'id', null, ''),
             title: this.prop(item, 'title', null, 'Untitled item'),
             mediaId: this.prop(item, 'mediaId', null, ''),
+            libraryId: this.prop(item, 'libraryId', null, ''),
             upvotes: this.prop(item, 'upvotes', null, []),
+            mediaType: this.prop(item, 'mediaType', null, ''),
+            overview: this.prop(item, 'overview', null, ''),
             addedBy: this.prop(item, 'addedBy', null, 'Unknown')
         };
     }
@@ -318,6 +327,7 @@ class JellTogetherApp {
             isPrivate: this.prop(room, 'isPrivate', null, false),
             isHostOnlyControl: this.prop(room, 'isHostOnlyControl', null, false),
             allowParticipantInvites: this.prop(room, 'allowParticipantInvites', null, true),
+            allowQueueVoting: this.prop(room, 'allowQueueVoting', null, true),
             lastUpdated: this.prop(room, 'lastUpdated', null, new Date(0).toISOString()),
             stats: this.prop(room, 'stats', null, {})
         };
@@ -538,6 +548,10 @@ class JellTogetherApp {
         await this.postRoomAction('ToggleParticipantInvites');
     }
 
+    async toggleQueueVoting() {
+        await this.postRoomAction('ToggleQueueVoting');
+    }
+
     async togglePrivacy() {
         await this.postRoomAction('TogglePrivacy');
     }
@@ -625,6 +639,12 @@ class JellTogetherApp {
             controlBtn.classList.toggle('warning', this.currentRoom.isHostOnlyControl);
         }
 
+        const queueVotingBtn = document.getElementById('btn-toggle-queue-voting');
+        if (queueVotingBtn) {
+            queueVotingBtn.style.display = amOwner ? 'inline-flex' : 'none';
+            queueVotingBtn.textContent = this.currentRoom.allowQueueVoting ? 'Voting on' : 'Voting off';
+        }
+
         document.getElementById('participant-count').textContent = `${this.currentRoom.participants.length} participants`;
         const roomNameInput = document.getElementById('current-room-name');
         if (roomNameInput && document.activeElement !== roomNameInput) roomNameInput.value = this.currentRoom.name;
@@ -638,6 +658,8 @@ class JellTogetherApp {
         const canChat = this.canChat();
         document.getElementById('chat-input').disabled = !canChat;
         document.getElementById('btn-send').disabled = !canChat;
+        const addQueueBtn = document.getElementById('btn-add-queue');
+        if (addQueueBtn) addQueueBtn.disabled = !this.canAddQueue();
 
         this.renderParticipants();
         this.renderPolls();
@@ -664,19 +686,131 @@ class JellTogetherApp {
     }
 
     async addToQueue() {
-        this.showModal('Add to queue', [
-            { id: 'title', label: 'Title', placeholder: 'Movie or episode title' }
-        ], [
-            { label: 'Add', primary: true, onClick: ({ title }) => this.addToQueueTitle(title) }
-        ]);
+        this.showQueueSearchModal();
     }
 
-    async addToQueueTitle(title) {
-        if (!title || !title.trim()) return;
+    showQueueSearchModal() {
+        this.hideModal();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card queue-search-modal';
+        modal.appendChild(this.textEl('h3', 'Add from Jellyfin'));
+
+        const input = document.createElement('input');
+        input.type = 'search';
+        input.className = 'glass-input';
+        input.placeholder = 'Search movies and episodes';
+        modal.appendChild(input);
+
+        const results = document.createElement('div');
+        results.className = 'media-search-results';
+        results.appendChild(this.textEl('div', 'Start typing to search allowed libraries.', 'loading'));
+        modal.appendChild(results);
+
+        const actionRow = document.createElement('div');
+        actionRow.className = 'split-actions';
+        actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
+        modal.appendChild(actionRow);
+
+        let searchTimer = null;
+        input.addEventListener('input', () => {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(() => this.searchQueueMedia(input.value, results), 260);
+        });
+
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        input.focus();
+    }
+
+    async searchQueueMedia(query, container) {
+        const term = query.trim();
+        this.clear(container);
+        if (term.length < 2) {
+            container.appendChild(this.textEl('div', 'Start typing to search allowed libraries.', 'loading'));
+            return;
+        }
+
         try {
-            const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Queue`, title.trim());
+            const libraries = this.enabledLibraryIds.length ? this.enabledLibraryIds : [''];
+            const searches = libraries.map(libraryId => this.searchLibrary(term, libraryId));
+            const grouped = await Promise.all(searches);
+            const results = grouped.flat().slice(0, 24);
+            if (!results.length) {
+                container.appendChild(this.textEl('div', 'No matching media found.', 'loading'));
+                return;
+            }
+
+            results.forEach(item => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'media-result';
+                button.appendChild(this.textEl('strong', item.title));
+                button.appendChild(this.textEl('span', [item.mediaType, item.year].filter(Boolean).join(' • ') || 'Jellyfin item'));
+                if (item.overview) button.appendChild(this.textEl('span', item.overview));
+                button.onclick = () => this.addMediaToQueue(item);
+                container.appendChild(button);
+            });
+        } catch (e) {
+            console.error('Media Search Error:', e);
+            container.appendChild(this.textEl('div', 'Search failed.', 'loading'));
+        }
+    }
+
+    async searchLibrary(term, libraryId) {
+        const userId = this.currentJellyfinUserId();
+        if (!userId) return [];
+        const params = new URLSearchParams({
+            Recursive: 'true',
+            SearchTerm: term,
+            IncludeItemTypes: 'Movie,Episode',
+            Limit: '12',
+            Fields: 'Overview'
+        });
+        if (libraryId) params.set('ParentId', libraryId);
+
+        const data = await this.fetchJson(`/Users/${encodeURIComponent(userId)}/Items?${params}`);
+        const items = data.Items || data.items || [];
+        return items.map(item => ({
+            title: this.mediaTitle(item),
+            mediaId: item.Id || item.id || '',
+            libraryId,
+            mediaType: item.Type || item.type || item.MediaType || item.mediaType || '',
+            overview: item.Overview || item.overview || '',
+            year: item.ProductionYear || item.productionYear || ''
+        })).filter(item => item.mediaId && item.title);
+    }
+
+    mediaTitle(item) {
+        const name = item.Name || item.name || 'Untitled';
+        const series = item.SeriesName || item.seriesName;
+        const season = item.ParentIndexNumber || item.parentIndexNumber;
+        const episode = item.IndexNumber || item.indexNumber;
+        if (series && (season || episode)) {
+            const code = `S${String(season || 0).padStart(2, '0')}E${String(episode || 0).padStart(2, '0')}`;
+            return `${series} ${code} - ${name}`;
+        }
+        return name;
+    }
+
+    currentJellyfinUserId() {
+        const apiClient = window.ApiClient;
+        return apiClient?._serverInfo?.UserId || apiClient?.serverInfo?.UserId || apiClient?._currentUser?.Id || apiClient?._currentUser?.id || '';
+    }
+
+    async addMediaToQueue(item) {
+        if (!item?.title || !this.currentRoom) return;
+        try {
+            const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Queue`, item);
             if (!resp.ok) throw new Error("Queue add failed");
+            this.hideModal();
             await this.refreshRoom();
+            this.showToast("Added to queue.", 'success');
         } catch (e) {
             console.error("Queue Error:", e);
             this.showToast("Failed to add queue item.", 'error');
@@ -772,15 +906,52 @@ class JellTogetherApp {
             const content = document.createElement('div');
             content.className = 'queue-item-content';
             content.appendChild(this.textEl('span', item.title));
-            content.appendChild(this.textEl('span', `Added by ${item.addedBy || 'Unknown'}`, 'item-meta'));
+            const meta = [`Added by ${item.addedBy || 'Unknown'}`];
+            if (item.mediaType) meta.push(item.mediaType);
+            content.appendChild(this.textEl('span', meta.join(' • '), 'item-meta'));
             row.appendChild(content);
 
-            if (this.canManage() || item.addedBy === this.currentUser) {
-                row.appendChild(this.button('Remove', 'micro-command', () => this.removeQueueItem(item.id)));
+            const actions = document.createElement('div');
+            actions.className = 'queue-actions';
+            if (this.currentRoom.allowQueueVoting) {
+                const voteLabel = item.upvotes?.includes(this.currentUser) ? `Voted (${item.upvotes.length})` : `Vote (${item.upvotes?.length || 0})`;
+                actions.appendChild(this.button(voteLabel, item.upvotes?.includes(this.currentUser) ? 'micro-command active' : 'micro-command', () => this.toggleQueueVote(item.id)));
             }
+            if (this.canManage()) {
+                actions.appendChild(this.button('Up', 'micro-command', () => this.moveQueueItem(item.id, -1)));
+                actions.appendChild(this.button('Down', 'micro-command', () => this.moveQueueItem(item.id, 1)));
+            }
+            if (this.canManage() || item.addedBy === this.currentUser) {
+                actions.appendChild(this.button('Remove', 'micro-command', () => this.removeQueueItem(item.id)));
+            }
+            row.appendChild(actions);
 
             container.appendChild(row);
         });
+    }
+
+    async toggleQueueVote(itemId) {
+        if (!this.currentRoom || !itemId) return;
+        try {
+            const resp = await this.request(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Queue/${encodeURIComponent(itemId)}/Vote`, { method: 'POST' });
+            if (!resp.ok) throw new Error("Queue vote failed");
+            await this.refreshRoom();
+        } catch (e) {
+            console.error("Queue Vote Error:", e);
+            this.showToast("Failed to update queue vote.", 'error');
+        }
+    }
+
+    async moveQueueItem(itemId, direction) {
+        if (!this.currentRoom || !itemId || !this.canManage()) return;
+        try {
+            const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Queue/${encodeURIComponent(itemId)}/Move`, direction);
+            if (!resp.ok) throw new Error("Queue move failed");
+            await this.refreshRoom();
+        } catch (e) {
+            console.error("Queue Move Error:", e);
+            this.showToast("Failed to reorder queue.", 'error');
+        }
     }
 
     async removeQueueItem(itemId) {
@@ -1150,6 +1321,11 @@ class JellTogetherApp {
         if (this.canManage()) return true;
         const perms = this.currentRoom.permissions?.[this.currentUser];
         return !perms || perms.canChat !== false;
+    }
+
+    canAddQueue() {
+        if (!this.currentRoom) return false;
+        return this.canManage() || this.allowParticipantQueueAdds;
     }
 
     async generateAdvancedInvite() {

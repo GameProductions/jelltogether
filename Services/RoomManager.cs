@@ -16,6 +16,7 @@ namespace JellTogether.Plugin.Services
         public string Name { get; set; } = string.Empty;
         public bool IsPrivate { get; set; } = false;
         public bool AllowParticipantInvites { get; set; } = true;
+        public bool AllowQueueVoting { get; set; } = true;
         public string OwnerId { get; set; } = string.Empty;
         public List<string> CoHostIds { get; set; } = new();
         public List<string> Participants { get; set; } = new();
@@ -46,6 +47,9 @@ namespace JellTogether.Plugin.Services
         public string Id { get; set; } = Guid.NewGuid().ToString("N");
         public string Title { get; set; } = string.Empty;
         public string MediaId { get; set; } = string.Empty;
+        public string LibraryId { get; set; } = string.Empty;
+        public string MediaType { get; set; } = string.Empty;
+        public string Overview { get; set; } = string.Empty;
         public List<string> Upvotes { get; set; } = new();
         public string AddedBy { get; set; } = string.Empty;
     }
@@ -176,7 +180,9 @@ namespace JellTogether.Plugin.Services
                 {
                     Name = TrimToLimit(name, 120),
                     OwnerId = ownerId,
-                    RoomCode = GenerateUniqueCode()
+                    RoomCode = GenerateUniqueCode(),
+                    AllowParticipantInvites = global::JellTogether.Plugin.Plugin.Instance?.Configuration.AllowParticipantInvitesByDefault ?? true,
+                    AllowQueueVoting = global::JellTogether.Plugin.Plugin.Instance?.Configuration.AllowQueueVotingByDefault ?? true
                 };
                 room.Participants.Add(ownerId);
                 room.CinemaSeats[ownerId] = 0;
@@ -292,6 +298,18 @@ namespace JellTogether.Plugin.Services
                 if (_rooms.TryGetValue(roomId, out var room))
                 {
                     room.AllowParticipantInvites = !room.AllowParticipantInvites;
+                    Touch(room);
+                }
+            }
+        }
+
+        public void ToggleQueueVoting(string roomId)
+        {
+            lock (_roomLock)
+            {
+                if (_rooms.TryGetValue(roomId, out var room))
+                {
+                    room.AllowQueueVoting = !room.AllowQueueVoting;
                     Touch(room);
                 }
             }
@@ -584,15 +602,65 @@ namespace JellTogether.Plugin.Services
             catch { }
         }
 
-        public void AddToQueue(string roomId, string title, string userId)
+        public void AddToQueue(string roomId, string title, string userId, string mediaId = "", string libraryId = "", string mediaType = "", string overview = "")
         {
             lock (_roomLock)
             {
                 if (_rooms.TryGetValue(roomId, out var room) && room.Participants.Contains(userId))
                 {
-                    room.Queue.Add(new QueueItem { Title = TrimToLimit(title, 200), AddedBy = userId });
+                    room.Queue.Add(new QueueItem
+                    {
+                        Title = TrimToLimit(title, 200),
+                        MediaId = TrimToLimit(mediaId, 64),
+                        LibraryId = TrimToLimit(libraryId, 64),
+                        MediaType = TrimToLimit(mediaType, 40),
+                        Overview = TrimToLimit(overview, 260),
+                        AddedBy = userId
+                    });
                     Touch(room);
                 }
+            }
+        }
+
+        public bool ToggleQueueVote(string roomId, string itemId, string userId)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room) || !room.Participants.Contains(userId) || !room.AllowQueueVoting) return false;
+                var item = room.Queue.FirstOrDefault(i => i.Id == itemId);
+                if (item == null) return false;
+
+                if (item.Upvotes.Contains(userId))
+                {
+                    item.Upvotes.Remove(userId);
+                }
+                else
+                {
+                    item.Upvotes.Add(userId);
+                }
+
+                Touch(room);
+                return true;
+            }
+        }
+
+        public bool MoveQueueItem(string roomId, string itemId, int direction, string userId)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room)) return false;
+                if (room.OwnerId != userId && !room.CoHostIds.Contains(userId)) return false;
+
+                var currentIndex = room.Queue.FindIndex(i => i.Id == itemId);
+                if (currentIndex < 0) return false;
+                var nextIndex = Math.Clamp(currentIndex + Math.Sign(direction), 0, room.Queue.Count - 1);
+                if (nextIndex == currentIndex) return true;
+
+                var item = room.Queue[currentIndex];
+                room.Queue.RemoveAt(currentIndex);
+                room.Queue.Insert(nextIndex, item);
+                Touch(room);
+                return true;
             }
         }
 

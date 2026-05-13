@@ -9,12 +9,12 @@
     "category": "Social",
     "versions": [
       {
-        "version": "1.1.11.0",
-        "changelog": "Polish People tab controls and clearly label public access, companion link, and invite code fields.",
+        "version": "1.2.0.0",
+        "changelog": "Add global settings, library-scoped media search queueing, queue voting, and host queue reordering.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.1.11.0/jelltogether_1.1.11.0.zip",
-        "checksum": "82121528FACAFB9682AC57B2EE6BAF90",
-        "timestamp": "2026-05-13T11:34:20Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.0.0/jelltogether_1.2.0.0.zip",
+        "checksum": "2620F03143D338918CAB1068E604EDE9",
+        "timestamp": "2026-05-13T12:09:51Z"
       }
     ]
   }
