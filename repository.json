@@ -9,12 +9,12 @@
     "category": "Social",
     "versions": [
       {
-        "version": "1.2.0.0",
-        "changelog": "Add global settings, library-scoped media search queueing, queue voting, and host queue reordering.",
+        "version": "1.2.1.0",
+        "changelog": "Fix Jellyfin plugin listing settings navigation so it opens global settings instead of the companion.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.0.0/jelltogether_1.2.0.0.zip",
-        "checksum": "2620F03143D338918CAB1068E604EDE9",
-        "timestamp": "2026-05-13T12:09:51Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.1.0/jelltogether_1.2.1.0.zip",
+        "checksum": "8EAC522698B376E8DE885D76B30507D7",
+        "timestamp": "2026-05-13T13:36:10Z"
       }
     ]
   }

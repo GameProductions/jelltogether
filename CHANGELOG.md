@@ -1,5 +1,8 @@
 # JellTogether Changelog
 
+## [2026-05-13] - Plugin settings navigation fix
+- Fixed Jellyfin plugin listing settings navigation so it opens global settings instead of the companion page.
+
 ## [2026-05-13] - Global settings and library queue search
 - Added a global settings page for public access URLs, library access, and system-wide JellTogether defaults.
 - Replaced manual queue title entry with Jellyfin library search scoped to selected libraries.

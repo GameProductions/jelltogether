@@ -32,13 +32,13 @@ namespace JellTogether.Plugin
             {
                 new PluginPageInfo
                 {
-                    Name = "jelltogether-settings",
+                    Name = "jelltogether",
                     DisplayName = "JellTogether",
                     EmbeddedResourcePath = WebResourcePrefix + ".jelltogether-settings.html"
                 },
                 new PluginPageInfo
                 {
-                    Name = "jelltogether",
+                    Name = "jelltogether-companion",
                     DisplayName = "JellTogether",
                     EmbeddedResourcePath = WebResourcePrefix + ".jelltogether.html",
                     EnableInMainMenu = true,
