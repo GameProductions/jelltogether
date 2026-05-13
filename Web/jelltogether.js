@@ -335,6 +335,9 @@ class JellTogetherApp {
             isHostOnlyControl: this.prop(room, 'isHostOnlyControl', null, false),
             allowParticipantInvites: this.prop(room, 'allowParticipantInvites', null, true),
             allowQueueVoting: this.prop(room, 'allowQueueVoting', null, true),
+            nowPlayingTitle: this.prop(room, 'nowPlayingTitle', null, ''),
+            nowPlayingMediaId: this.prop(room, 'nowPlayingMediaId', null, ''),
+            nowPlayingStartedAt: this.prop(room, 'nowPlayingStartedAt', null, null),
             lastUpdated: this.prop(room, 'lastUpdated', null, new Date(0).toISOString()),
             stats: this.prop(room, 'stats', null, {})
         };
@@ -481,12 +484,48 @@ class JellTogetherApp {
             meta.className = 'meta';
             meta.appendChild(this.textEl('span', `Participants: ${room.participants?.length || 0}`));
             card.appendChild(meta);
+
+            const nowPlaying = this.roomNowPlayingDetails(room);
+            const nowPlayingEl = document.createElement('div');
+            nowPlayingEl.className = nowPlaying.title ? 'room-now-playing is-active' : 'room-now-playing';
+            nowPlayingEl.appendChild(this.textEl('span', nowPlaying.title ? 'Now playing' : 'Not started yet', 'room-now-label'));
+            nowPlayingEl.appendChild(this.textEl('strong', nowPlaying.title || 'Queue waiting'));
+            if (nowPlaying.meta) nowPlayingEl.appendChild(this.textEl('em', nowPlaying.meta));
+            if (nowPlaying.overview) nowPlayingEl.appendChild(this.textEl('p', nowPlaying.overview));
+            card.appendChild(nowPlayingEl);
+
             card.appendChild(this.button(this.t.join_btn, 'btn-join', (e) => {
                 e.stopPropagation();
                 this.joinRoom(room.id);
             }));
             grid.appendChild(card);
         });
+    }
+
+    roomNowPlayingDetails(room) {
+        const activeItem = room.queue?.find(item => item.mediaId && item.mediaId === room.nowPlayingMediaId);
+        const title = room.nowPlayingTitle || activeItem?.title || '';
+        const meta = [
+            activeItem?.mediaType,
+            room.nowPlayingStartedAt ? `Started ${this.relativeTime(room.nowPlayingStartedAt)}` : ''
+        ].filter(Boolean).join(' • ');
+
+        return {
+            title,
+            meta,
+            overview: activeItem?.overview || ''
+        };
+    }
+
+    relativeTime(value) {
+        const then = new Date(value).getTime();
+        if (!Number.isFinite(then)) return '';
+        const seconds = Math.max(0, Math.round((Date.now() - then) / 1000));
+        if (seconds < 60) return 'just now';
+        const minutes = Math.round(seconds / 60);
+        if (minutes < 60) return `${minutes} min ago`;
+        const hours = Math.round(minutes / 60);
+        return `${hours} hr ago`;
     }
 
     async joinRoom(roomId, inviteCode = null) {
@@ -668,6 +707,7 @@ class JellTogetherApp {
         const addQueueBtn = document.getElementById('btn-add-queue');
         if (addQueueBtn) addQueueBtn.disabled = !this.canAddQueue();
 
+        this.renderPlayerState();
         this.renderParticipants();
         this.renderPolls();
         this.renderChat();
@@ -1093,6 +1133,9 @@ class JellTogetherApp {
                 actions.appendChild(this.button(voteLabel, item.upvotes?.includes(this.currentUser) ? 'micro-command active' : 'micro-command', () => this.toggleQueueVote(item.id)));
             }
             if (this.canManage()) {
+                if (item.mediaId) {
+                    actions.appendChild(this.button('Start', 'micro-command primary', () => this.showStartWatchPartyModal(item)));
+                }
                 actions.appendChild(this.button('Up', 'micro-command', () => this.moveQueueItem(item.id, -1)));
                 actions.appendChild(this.button('Down', 'micro-command', () => this.moveQueueItem(item.id, 1)));
             }
@@ -1103,6 +1146,103 @@ class JellTogetherApp {
 
             container.appendChild(row);
         });
+    }
+
+    renderPlayerState() {
+        const title = document.getElementById('now-playing-title');
+        if (!title || !this.currentRoom) return;
+        title.textContent = this.currentRoom.nowPlayingTitle
+            ? `Now playing: ${this.currentRoom.nowPlayingTitle}`
+            : 'No synced media selected';
+    }
+
+    async showStartWatchPartyModal(item) {
+        if (!item?.mediaId || !this.currentRoom || !this.canManage()) return;
+        this.hideModal();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card playback-modal';
+        modal.appendChild(this.textEl('h3', 'Start Watch Party'));
+        modal.appendChild(this.textEl('p', item.title, 'modal-subtitle'));
+
+        const targetList = document.createElement('div');
+        targetList.className = 'playback-target-list';
+        targetList.appendChild(this.textEl('div', 'Finding active Jellyfin sessions...', 'loading'));
+        modal.appendChild(targetList);
+
+        const actionRow = document.createElement('div');
+        actionRow.className = 'split-actions';
+        const startButton = this.button('Start', 'primary-command', () => this.startWatchParty(item.id, this.selectedPlaybackTargets(targetList)));
+        startButton.disabled = true;
+        actionRow.appendChild(startButton);
+        actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
+        modal.appendChild(actionRow);
+
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        try {
+            const targets = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackTargets`);
+            this.renderPlaybackTargets(targetList, targets || [], startButton);
+        } catch (e) {
+            console.error("Playback Targets Error:", e);
+            targetList.replaceChildren(this.textEl('div', 'Could not load active Jellyfin sessions.', 'loading'));
+        }
+    }
+
+    renderPlaybackTargets(container, targets, startButton) {
+        this.clear(container);
+        const eligible = targets.filter(target => target.isActive && target.supportsRemoteControl && target.supportsMediaControl);
+        if (!eligible.length) {
+            container.appendChild(this.textEl('div', 'No active controllable Jellyfin sessions found for people in this room.', 'loading'));
+            startButton.disabled = true;
+            return;
+        }
+
+        eligible.forEach(target => {
+            const label = document.createElement('label');
+            label.className = 'playback-target';
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.value = target.sessionId;
+            input.checked = true;
+            input.addEventListener('change', () => {
+                startButton.disabled = this.selectedPlaybackTargets(container).length === 0;
+            });
+            label.appendChild(input);
+            const text = document.createElement('span');
+            text.appendChild(this.textEl('strong', target.userName || target.userId || 'Jellyfin user'));
+            text.appendChild(this.textEl('em', [target.client, target.deviceName].filter(Boolean).join(' • ') || 'Active session'));
+            label.appendChild(text);
+            container.appendChild(label);
+        });
+        startButton.disabled = false;
+    }
+
+    selectedPlaybackTargets(container) {
+        return [...container.querySelectorAll('input[type="checkbox"]:checked')]
+            .map(input => input.value)
+            .filter(Boolean);
+    }
+
+    async startWatchParty(itemId, targetSessionIds) {
+        if (!this.currentRoom || !itemId) return;
+        try {
+            const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Queue/${encodeURIComponent(itemId)}/Start`, { targetSessionIds });
+            if (!resp.ok) throw new Error(await resp.text());
+            const result = await resp.json();
+            this.hideModal();
+            await this.refreshRoom();
+            this.showToast(`Started ${result.title || 'watch party'} on ${result.startedCount || 0} session${result.startedCount === 1 ? '' : 's'}.`, 'success');
+        } catch (e) {
+            console.error("Start Watch Party Error:", e);
+            this.showToast("Could not start playback. Make sure participants have active controllable Jellyfin clients.", 'error');
+        }
     }
 
     async toggleQueueVote(itemId) {

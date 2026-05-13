@@ -1,5 +1,11 @@
 # JellTogether Changelog
 
+## [2026-05-13] - Start watch party playback
+- Added host/co-host Start controls for queued Jellyfin media.
+- Added playback target selection for active remote-controllable Jellyfin sessions in the room.
+- Stored now-playing room state after successfully sending playback commands.
+- Added now-playing details to lobby room listings.
+
 ## [2026-05-13] - Interactive theater seats
 - Assigned participants visibly to theater seats with initials, hover details, and click-through participant details.
 - Show Jellyfin profile pictures on occupied seats when available, with initials as fallback.

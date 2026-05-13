@@ -411,6 +411,53 @@ h1 {
     font-size: 0.88rem;
 }
 
+.room-now-playing {
+    min-height: 96px;
+    display: grid;
+    align-content: start;
+    gap: 5px;
+    margin-top: 14px;
+    padding: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.room-now-playing.is-active {
+    border-color: rgba(94, 234, 212, 0.28);
+    background: rgba(94, 234, 212, 0.08);
+}
+
+.room-now-label {
+    color: var(--primary);
+    font-size: 0.68rem;
+    font-weight: 900;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
+.room-now-playing strong {
+    color: var(--text-main);
+    overflow-wrap: anywhere;
+}
+
+.room-now-playing em,
+.room-now-playing p {
+    margin: 0;
+    color: var(--text-dim);
+    font-size: 0.76rem;
+    font-style: normal;
+}
+
+.room-now-playing p {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    line-height: 1.35;
+}
+
 .room-card .btn-join {
     width: 100%;
     margin-top: 22px;
@@ -810,6 +857,39 @@ h1 {
     color: #041014;
     border-color: rgba(94, 234, 212, 0.56);
     background: var(--primary);
+}
+
+.micro-command.primary {
+    color: #041014;
+    border-color: rgba(94, 234, 212, 0.62);
+    background: linear-gradient(135deg, rgba(94, 234, 212, 0.95), rgba(255, 77, 166, 0.72));
+}
+
+.playback-target-list {
+    display: grid;
+    gap: 10px;
+}
+
+.playback-target {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.055);
+}
+
+.playback-target span {
+    display: grid;
+    gap: 2px;
+}
+
+.playback-target em {
+    color: var(--text-dim);
+    font-size: 0.76rem;
+    font-style: normal;
 }
 
 .participant-info {

@@ -7,6 +7,8 @@ using System.Security.Claims;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Controller.Session;
+using MediaBrowser.Model.Session;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
@@ -67,11 +69,38 @@ namespace JellTogether.Plugin.Api
         public string ReplyToMessageId { get; set; } = string.Empty;
     }
 
+    public class StartWatchPartyRequest
+    {
+        public List<string> TargetSessionIds { get; set; } = new();
+    }
+
+    public class PlaybackTargetDto
+    {
+        public string SessionId { get; set; } = string.Empty;
+        public string UserId { get; set; } = string.Empty;
+        public string UserName { get; set; } = string.Empty;
+        public string Client { get; set; } = string.Empty;
+        public string DeviceName { get; set; } = string.Empty;
+        public bool IsActive { get; set; }
+        public bool SupportsRemoteControl { get; set; }
+        public bool SupportsMediaControl { get; set; }
+        public bool IsCurrentUser { get; set; }
+    }
+
+    public class StartWatchPartyResult
+    {
+        public string Title { get; set; } = string.Empty;
+        public int StartedCount { get; set; }
+        public int EligibleCount { get; set; }
+        public List<string> FailedSessionIds { get; set; } = new();
+    }
+
     [ApiController]
     [Route("jelltogether")]
     [Authorize]
     public class JellTogetherController : ControllerBase
     {
+        private readonly ISessionManager _sessionManager;
         private RoomManager _roomManager => Plugin.Instance?.RoomManager ?? throw new System.Exception("Plugin not initialized");
         private string CurrentUserId =>
             User.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
@@ -79,6 +108,11 @@ namespace JellTogether.Plugin.Api
             User.FindFirst("uid")?.Value ??
             User.Identity?.Name ??
             "Unknown";
+
+        public JellTogetherController(ISessionManager sessionManager)
+        {
+            _sessionManager = sessionManager;
+        }
 
         [HttpGet]
         [AllowAnonymous]
@@ -343,6 +377,75 @@ namespace JellTogether.Plugin.Api
             if (!room.Participants.Contains(CurrentUserId)) return Forbid();
 
             return _roomManager.RemoveQueueItem(roomId, itemId, CurrentUserId) ? Ok() : Forbid();
+        }
+
+        [HttpGet("Rooms/{roomId}/PlaybackTargets")]
+        public ActionResult<List<PlaybackTargetDto>> GetPlaybackTargets(string roomId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanView(room)) return Forbid();
+
+            return Ok(PlaybackTargetsForRoom(room));
+        }
+
+        [HttpPost("Rooms/{roomId}/Queue/{itemId}/Start")]
+        public async Task<ActionResult<StartWatchPartyResult>> StartWatchParty(string roomId, string itemId, [FromBody] StartWatchPartyRequest? request, CancellationToken cancellationToken)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManage(room)) return Forbid();
+
+            var item = room.Queue.FirstOrDefault(queueItem => queueItem.Id == itemId);
+            if (item == null) return NotFound();
+            if (!Guid.TryParse(item.MediaId, out var mediaId)) return BadRequest("Queue item is not linked to a playable Jellyfin item.");
+
+            var targets = PlaybackTargetsForRoom(room)
+                .Where(target => target.IsActive && target.SupportsRemoteControl && target.SupportsMediaControl)
+                .ToList();
+
+            var requestedSessionIds = request?.TargetSessionIds?.Where(id => !string.IsNullOrWhiteSpace(id)).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? new();
+            if (requestedSessionIds.Count > 0)
+            {
+                targets = targets.Where(target => requestedSessionIds.Contains(target.SessionId)).ToList();
+            }
+
+            if (targets.Count == 0) return BadRequest("No active controllable Jellyfin sessions are available for this room.");
+
+            var controllingSessionId = ControllerSessionId();
+            var controllingUserId = ControllerUserGuid();
+            var playRequest = new PlayRequest
+            {
+                ItemIds = new[] { mediaId },
+                PlayCommand = PlayCommand.PlayNow,
+                ControllingUserId = controllingUserId
+            };
+
+            var failed = new List<string>();
+            foreach (var target in targets)
+            {
+                try
+                {
+                    await _sessionManager.SendPlayCommand(controllingSessionId, target.SessionId, playRequest, cancellationToken).ConfigureAwait(false);
+                }
+                catch
+                {
+                    failed.Add(target.SessionId);
+                }
+            }
+
+            if (failed.Count < targets.Count)
+            {
+                _roomManager.MarkNowPlaying(roomId, item);
+            }
+
+            return Ok(new StartWatchPartyResult
+            {
+                Title = item.Title,
+                EligibleCount = targets.Count,
+                StartedCount = targets.Count - failed.Count,
+                FailedSessionIds = failed
+            });
         }
 
         [HttpPost("Rooms/{roomId}/Theories")]
@@ -703,6 +806,59 @@ namespace JellTogether.Plugin.Api
             }
 
             return room;
+        }
+
+        private List<PlaybackTargetDto> PlaybackTargetsForRoom(JellTogetherRoom room)
+        {
+            return _sessionManager.Sessions
+                .Where(session => SessionBelongsToRoomParticipant(session, room))
+                .Select(session => new PlaybackTargetDto
+                {
+                    SessionId = session.Id,
+                    UserId = session.UserId.ToString("D"),
+                    UserName = session.UserName,
+                    Client = session.Client,
+                    DeviceName = session.DeviceName,
+                    IsActive = session.IsActive,
+                    SupportsRemoteControl = session.SupportsRemoteControl,
+                    SupportsMediaControl = session.SupportsMediaControl,
+                    IsCurrentUser = SessionMatchesCurrentUser(session)
+                })
+                .OrderByDescending(target => target.IsCurrentUser)
+                .ThenBy(target => target.UserName)
+                .ThenBy(target => target.DeviceName)
+                .ToList();
+        }
+
+        private bool SessionBelongsToRoomParticipant(SessionInfo session, JellTogetherRoom room)
+        {
+            return room.Participants.Any(participant => SessionMatchesUser(session, participant));
+        }
+
+        private bool SessionMatchesCurrentUser(SessionInfo session)
+        {
+            return SessionMatchesUser(session, CurrentUserId);
+        }
+
+        private static bool SessionMatchesUser(SessionInfo session, string userId)
+        {
+            if (string.IsNullOrWhiteSpace(userId)) return false;
+            return session.UserName.Equals(userId, StringComparison.OrdinalIgnoreCase) ||
+                session.UserId.ToString("D").Equals(userId, StringComparison.OrdinalIgnoreCase) ||
+                session.UserId.ToString("N").Equals(userId, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private string ControllerSessionId()
+        {
+            return _sessionManager.Sessions.FirstOrDefault(SessionMatchesCurrentUser)?.Id ?? string.Empty;
+        }
+
+        private Guid ControllerUserGuid()
+        {
+            var session = _sessionManager.Sessions.FirstOrDefault(SessionMatchesCurrentUser);
+            if (session != null) return session.UserId;
+            if (Guid.TryParse(CurrentUserId, out var userId)) return userId;
+            return Guid.Empty;
         }
 
         private static QueueItemRequest ParseQueueItemRequest(JsonElement payload)

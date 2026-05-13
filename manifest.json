@@ -9,12 +9,12 @@
     "category": "Social",
     "versions": [
       {
-        "version": "1.2.5.0",
-        "changelog": "Add interactive theater seats, profile avatars, chat replies, mentions, and message reactions.",
+        "version": "1.2.6.0",
+        "changelog": "Add host-controlled Start Watch Party playback for queued Jellyfin media.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.5.0/jelltogether_1.2.5.0.zip",
-        "checksum": "6840F871ABEB9146E62E4A58C2490E1D",
-        "timestamp": "2026-05-13T17:07:32Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.6.0/jelltogether_1.2.6.0.zip",
+        "checksum": "54133818527014C52B737FE3166EE6E5",
+        "timestamp": "2026-05-13T17:20:27Z"
       }
     ],
     "imageUrl": "https://raw.githubusercontent.com/GameProductions/jelltogether/main/banner.png"

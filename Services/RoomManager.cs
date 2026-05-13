@@ -38,6 +38,9 @@ namespace JellTogether.Plugin.Services
         public string? DiscordBotToken { get; set; }
         public string? DiscordStageId { get; set; }
         public List<string> RecentReactions { get; set; } = new();
+        public string NowPlayingTitle { get; set; } = string.Empty;
+        public string NowPlayingMediaId { get; set; } = string.Empty;
+        public DateTime? NowPlayingStartedAt { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
     }
@@ -729,6 +732,18 @@ namespace JellTogether.Plugin.Services
                 room.Queue.Remove(item);
                 Touch(room);
                 return true;
+            }
+        }
+
+        public void MarkNowPlaying(string roomId, QueueItem item)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room)) return;
+                room.NowPlayingTitle = item.Title;
+                room.NowPlayingMediaId = item.MediaId;
+                room.NowPlayingStartedAt = DateTime.UtcNow;
+                Touch(room);
             }
         }
 
