@@ -1,0 +1,208 @@
+<div id="jelltogetherPage" data-role="page" class="page type-interior pluginConfigurationPage jelltogether-page">
+    <link rel="stylesheet" href="configurationpage?name=jelltogether.css" onerror="this.onerror=null;this.href='jelltogether.css';">
+    <div class="vr-stars" id="vr-stars"></div>
+    <div class="app-container">
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="topbar">
+                <div class="logo">
+                    <img src="configurationpage?name=logo.png" alt="" aria-hidden="true" onerror="this.onerror=null;this.src='../logo.png';">
+                    <span>JellTogether</span>
+                </div>
+                <div class="user-profile">
+                    <span class="profile-label">Signed in</span>
+                    <span id="display-name">Loading...</span>
+                </div>
+            </header>
+
+            <div id="lobby-view" class="view">
+                <section class="lobby-shell">
+                    <div class="hero-panel">
+                        <div>
+                            <div class="eyebrow">Jellyfin watch party companion</div>
+                            <h1>Active Watch Parties</h1>
+                            <p>Host synced viewing sessions with chat, reactions, polls, queueing, and theater controls.</p>
+                        </div>
+                        <div class="hero-actions">
+                            <button class="primary-command" onclick="app.createRoom()">Create Party</button>
+                            <button class="secondary-command" onclick="app.copyCompanionLink()">Copy Companion Link</button>
+                        </div>
+                    </div>
+
+                    <div class="join-panel">
+                        <input type="text" id="join-code-input" class="glass-input" placeholder="Enter invite code">
+                        <button class="secondary-command" onclick="app.joinByCode()">Join</button>
+                    </div>
+
+                    <div id="room-grid" class="room-grid">
+                        <div class="loading">Searching for active parties...</div>
+                    </div>
+                </section>
+            </div>
+
+            <div id="party-view" class="view" style="display: none;">
+                <div class="room-toolbar">
+                    <button class="ghost-command" onclick="app.leaveRoom()">Back to Lobby</button>
+                    <button id="btn-vr-mode" class="pill-command" onclick="app.toggleImmersiveMode()" style="display: none;">Enter VR</button>
+                </div>
+                <div class="room-heading">
+                    <div>
+                        <div class="eyebrow">Now hosting</div>
+                        <h1 id="current-room-name">Party Name</h1>
+                    </div>
+                    <div class="room-stats">
+                        <span id="participant-count">0 participants</span>
+                    </div>
+                </div>
+
+                <div class="player-placeholder">
+                    <div class="player-frame">
+                        <div class="play-mark"></div>
+                        <span>Jellyfin Player Sync Active</span>
+                    </div>
+                </div>
+
+                <div class="cinema-seats" id="cinema-seats"></div>
+
+                <section class="content-section">
+                    <div class="section-heading">
+                        <h3>Theory Board</h3>
+                    </div>
+                    <div id="theory-board" class="theory-board">
+                        <button class="new-tile-command" onclick="app.addTheory()">New Theory</button>
+                    </div>
+                </section>
+
+                <section class="content-section">
+                    <div class="section-heading">
+                        <h3>Up Next</h3>
+                        <button class="secondary-command compact" onclick="app.addToQueue()">Add to Queue</button>
+                    </div>
+                    <div id="queue-panel" class="queue-panel">
+                        <div class="loading">Queue is empty.</div>
+                    </div>
+                </section>
+            </div>
+        </main>
+
+        <aside class="sidebar">
+            <header class="sidebar-header">
+                <div>
+                    <div class="eyebrow">Control room</div>
+                    <h3>Party Management</h3>
+                </div>
+                <div class="status-dot" title="Connected"></div>
+            </header>
+
+            <div id="public-access-settings" class="admin-group" style="display: none;">
+                <div class="section-label">Public Access</div>
+                <input type="url" id="public-jellyfin-url" placeholder="Public Jellyfin URL" class="chat-input">
+                <input type="url" id="public-companion-url" placeholder="Public companion URL" class="chat-input">
+                <div class="split-actions">
+                    <button class="secondary-command" onclick="app.copyCompanionLink()">Copy Link</button>
+                    <button class="primary-command" onclick="app.savePublicAccessSettings()">Save</button>
+                </div>
+            </div>
+
+            <div id="participant-section" class="participant-section" style="display: none;">
+                <div class="panel-title-row">
+                    <div class="section-label">Participants</div>
+                    <div id="participant-controls" class="icon-row">
+                        <button id="btn-toggle-participant-invites" class="action-btn" onclick="app.toggleParticipantInvites()" title="Toggle Invite Privileges">🤝</button>
+                        <button id="btn-toggle-privacy" class="action-btn" onclick="app.togglePrivacy()" title="Toggle Privacy">👁️</button>
+                        <button id="btn-toggle-control" class="action-btn" onclick="app.toggleHostControl()" title="Toggle Control">🔓</button>
+                    </div>
+                </div>
+
+                <div id="invite-code-container">
+                    <div class="invite-code-row">
+                        <span id="invite-code-text">CODE</span>
+                        <div class="inline-actions">
+                            <button class="secondary-command compact" onclick="app.copyInvite()">Copy</button>
+                            <button class="secondary-command compact" onclick="app.showShareModal()">QR/Link</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="participant-list" class="participant-list"></div>
+            </div>
+
+            <div id="host-theme-controls" class="admin-group" style="display: none;">
+                <div class="section-label">Theater Theme</div>
+                <div class="theme-grid">
+                    <button class="btn-theme" onclick="app.setTheme('default')">Modern</button>
+                    <button class="btn-theme" onclick="app.setTheme('cinema')">Classic</button>
+                    <button class="btn-theme" onclick="app.setTheme('horror')">Horror</button>
+                    <button class="btn-theme" onclick="app.setTheme('anime')">Anime</button>
+                    <button class="btn-theme" onclick="app.setTheme('scifi')">Space</button>
+                </div>
+            </div>
+
+            <div id="host-discord-stage" class="admin-group" style="display: none;">
+                <div class="section-label">Discord Stage</div>
+                <input type="text" id="discord-stage-id" placeholder="Stage Channel ID" class="chat-input">
+                <input type="password" id="discord-bot-token" placeholder="Bot Token" class="chat-input">
+                <div class="split-actions">
+                    <button class="secondary-command" onclick="app.saveDiscordStage()">Save</button>
+                    <button class="primary-command" onclick="app.syncDiscordStage()">Sync</button>
+                </div>
+            </div>
+
+            <div class="reaction-bar">
+                <button class="action-btn" onclick="app.sendReaction('🔥')">🔥</button>
+                <button class="action-btn" onclick="app.sendReaction('😂')">😂</button>
+                <button class="action-btn" onclick="app.sendReaction('😮')">😮</button>
+                <button class="action-btn" onclick="app.sendReaction('😢')">😢</button>
+                <button class="action-btn" onclick="app.sendReaction('👏')">👏</button>
+            </div>
+
+            <div id="poll-section" class="poll-section" style="display: none;">
+                <div class="panel-title-row">
+                    <div class="section-label">Live Polls</div>
+                    <button id="btn-new-poll" class="action-btn" style="display: none;" onclick="showPollModal()">+</button>
+                </div>
+                <div id="poll-list" class="poll-list"></div>
+            </div>
+
+            <div class="chat-container">
+                <div class="section-label">Chat</div>
+                <div id="chat-messages" class="chat-messages"></div>
+                <div class="chat-input-area">
+                    <input type="text" id="chat-input" class="chat-input" placeholder="Type a message..." disabled>
+                    <button id="btn-send" class="btn-send" onclick="app.sendMessage()" disabled>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    <!-- Modals -->
+    <div id="share-modal" class="glass-card share-modal" style="display: none;">
+        <h3>Invite Manager</h3>
+        <label class="toggle-row">
+            <input type="checkbox" id="show-qr-code" checked onchange="app.updateInviteQrVisibility()">
+            <span>Show QR code</span>
+        </label>
+        <div id="qr-container"></div>
+        <div class="share-field-label">Invite link</div>
+        <div class="glass-input-container">
+            <input type="text" id="share-link-text" class="glass-input" readonly>
+        </div>
+        <div class="share-field-label">Public companion URL</div>
+        <div class="glass-input-container">
+            <input type="text" id="public-companion-link-text" class="glass-input" readonly>
+        </div>
+        <div class="split-actions">
+            <button class="primary-command" onclick="app.copyShareLink()">Copy Link</button>
+            <button class="secondary-command" onclick="app.copyCompanionLink()">Copy Companion</button>
+            <button class="secondary-command" onclick="app.hideShareModal()">Close</button>
+        </div>
+    </div>
+    <div id="modal-overlay" onclick="app.hideShareModal()"></div>
+
+    <script src="configurationpage?name=strings.js" onerror="this.onerror=null;this.src='strings.js';"></script>
+    <script src="configurationpage?name=jelltogether.js" onerror="this.onerror=null;this.src='jelltogether.js';"></script>
+</div>

@@ -19,3 +19,4 @@ Thumbs.db
 
 # Release Binaries
 *.zip
+!jelltogether_1.1.2.0.zip

@@ -1,0 +1,593 @@
+using System;
+using System.Collections.Generic;
+using System.Security.Claims;
+using MediaBrowser.Common.Api;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.WebUtilities;
+using JellTogether.Plugin.Services;
+
+namespace JellTogether.Plugin.Api
+{
+    public class CreatePollRequest
+    {
+        public string Question { get; set; } = string.Empty;
+        public List<string> Options { get; set; } = new();
+    }
+
+    public class CreateInviteRequest
+    {
+        public bool CanChat { get; set; } = true;
+        public bool CanControl { get; set; } = true;
+        public int HoursValid { get; set; } = 24;
+        public int MaxUses { get; set; } = 0;
+    }
+
+    public class DiscordStageRequest
+    {
+        public string BotToken { get; set; } = string.Empty;
+        public string StageId { get; set; } = string.Empty;
+    }
+
+    public class CompanionSettingsRequest
+    {
+        public string PublicJellyfinUrl { get; set; } = string.Empty;
+        public string PublicCompanionUrl { get; set; } = string.Empty;
+    }
+
+    [ApiController]
+    [Route("jelltogether")]
+    [Authorize]
+    public class JellTogetherController : ControllerBase
+    {
+        private RoomManager _roomManager => Plugin.Instance?.RoomManager ?? throw new System.Exception("Plugin not initialized");
+        private string CurrentUserId =>
+            User.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
+            User.FindFirst("sub")?.Value ??
+            User.FindFirst("uid")?.Value ??
+            User.Identity?.Name ??
+            "Unknown";
+
+        [HttpGet]
+        [AllowAnonymous]
+        public IActionResult Open()
+        {
+            return Redirect(CompanionPageUrl());
+        }
+
+        [HttpGet("Companion")]
+        [AllowAnonymous]
+        public IActionResult OpenCompanion([FromQuery] string? code = null)
+        {
+            return Redirect(CompanionPageUrl(code));
+        }
+
+        [HttpGet("Invite/{code}")]
+        [AllowAnonymous]
+        public IActionResult OpenInvite(string code)
+        {
+            return Redirect(CompanionPageUrl(code));
+        }
+
+        [HttpGet("CurrentUser")]
+        public ActionResult<object> GetCurrentUser()
+        {
+            return Ok(new { id = CurrentUserId, name = CurrentUserId });
+        }
+
+        [HttpGet("Settings")]
+        public ActionResult<object> GetSettings()
+        {
+            var config = Plugin.Instance?.Configuration;
+            return Ok(new
+            {
+                publicJellyfinUrl = NormalizeBaseUrl(config?.PublicJellyfinUrl),
+                publicCompanionUrl = NormalizeBaseUrl(config?.PublicCompanionUrl),
+                canSavePublicAccessSettings = IsElevatedUser()
+            });
+        }
+
+        [HttpPost("Settings")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        public ActionResult SaveSettings([FromBody] CompanionSettingsRequest request)
+        {
+            if (request == null) return BadRequest("Settings payload is required.");
+
+            var publicJellyfinUrl = NormalizeBaseUrl(request.PublicJellyfinUrl);
+            var publicCompanionUrl = NormalizeBaseUrl(request.PublicCompanionUrl);
+
+            if (!IsValidPublicUrl(publicJellyfinUrl)) return BadRequest("Public Jellyfin URL must be a valid HTTPS URL, or HTTP for localhost/private network testing.");
+            if (!IsValidPublicUrl(publicCompanionUrl)) return BadRequest("Public companion URL must be a valid HTTPS URL, or HTTP for localhost/private network testing.");
+
+            var plugin = Plugin.Instance;
+            if (plugin == null) return StatusCode(500, "Plugin not initialized.");
+
+            var config = plugin.Configuration;
+            config.PublicJellyfinUrl = publicJellyfinUrl;
+            config.PublicCompanionUrl = publicCompanionUrl;
+            plugin.SaveConfiguration(config);
+            return Ok();
+        }
+
+        [HttpPost("Rooms")]
+        public ActionResult<JellTogetherRoom> CreateRoom([FromBody] string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return BadRequest("Room name is required.");
+            var room = _roomManager.CreateRoom(name, CurrentUserId);
+            return Ok(RoomForUser(room));
+        }
+
+        [HttpGet("Rooms")]
+        public ActionResult<IEnumerable<JellTogetherRoom>> GetRooms()
+        {
+            var rooms = _roomManager.GetAllRooms()
+                .Where(r => !r.IsPrivate)
+                .Select(RoomForUser)
+                .ToList();
+            return Ok(rooms);
+        }
+
+        [HttpGet("Rooms/ByCode/{code}")]
+        public ActionResult<object> GetRoomByCode(string code)
+        {
+            if (string.IsNullOrWhiteSpace(code)) return BadRequest("Room code is required.");
+
+            var room = _roomManager.GetRoomByCode(code);
+            if (room == null) return NotFound();
+            return Ok(new
+            {
+                id = room.Id,
+                name = room.Name,
+                roomCode = room.RoomCode,
+                isPrivate = room.IsPrivate,
+                participantCount = room.Participants.Count
+            });
+        }
+
+        [HttpPost("Rooms/{roomId}/TogglePrivacy")]
+        public ActionResult TogglePrivacy(string roomId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            var callerId = CurrentUserId;
+            if (room.OwnerId != callerId) return Forbid();
+
+            _roomManager.TogglePrivacy(roomId);
+            return Ok();
+        }
+
+        [HttpGet("Rooms/{roomId}")]
+        public ActionResult<JellTogetherRoom> GetRoom(string roomId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanView(room)) return Forbid();
+            return Ok(RoomForUser(room));
+        }
+
+        [HttpPost("Rooms/{roomId}/Join")]
+        public ActionResult JoinRoom(string roomId, [FromQuery] string? code = null)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!_roomManager.JoinRoom(roomId, CurrentUserId, code)) return Forbid();
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Queue")]
+        public ActionResult AddToQueue(string roomId, [FromBody] string title)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+            if (string.IsNullOrWhiteSpace(title)) return BadRequest("Queue title is required.");
+            _roomManager.AddToQueue(roomId, title, CurrentUserId);
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Theories")]
+        public ActionResult AddTheory(string roomId, [FromBody] string text)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+            if (string.IsNullOrWhiteSpace(text)) return BadRequest("Theory text is required.");
+            _roomManager.AddTheory(roomId, text, CurrentUserId);
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Reactions")]
+        public ActionResult SendReaction(string roomId, [FromBody] string emoji)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+            if (string.IsNullOrWhiteSpace(emoji)) return BadRequest("Reaction is required.");
+            _roomManager.AddReaction(roomId, emoji, CurrentUserId);
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Trivia")]
+        public ActionResult StartTrivia(string roomId, [FromBody] TriviaQuestion question)
+        {
+            if (question == null) return BadRequest("Trivia payload is required.");
+            if (string.IsNullOrWhiteSpace(question.Question)) return BadRequest("Trivia question is required.");
+            if (question.Options == null) return BadRequest("Trivia options are required.");
+            if (question.Options.Count(o => !string.IsNullOrWhiteSpace(o)) < 2) return BadRequest("Trivia requires at least two options.");
+
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManage(room)) return Forbid();
+            _roomManager.AddTrivia(roomId, question);
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Invitations")]
+        public ActionResult<JellTogetherInvite> CreateInvite(string roomId, [FromBody] CreateInviteRequest request)
+        {
+            if (request == null) return BadRequest("Invite payload is required.");
+            if (request.HoursValid < 0) return BadRequest("Invite expiration cannot be negative.");
+            if (request.MaxUses < 0) return BadRequest("Invite use limit cannot be negative.");
+
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+
+            var isAdmin = CanManage(room);
+            
+            if (!isAdmin && !room.AllowParticipantInvites) return Forbid();
+
+            var perms = new ParticipantPermissions { CanChat = request.CanChat, CanControlPlayback = request.CanControl };
+            var invite = _roomManager.CreateInvite(roomId, CurrentUserId, perms, request.HoursValid, request.MaxUses);
+            return Ok(invite);
+        }
+
+        [HttpPost("Rooms/{roomId}/ToggleParticipantInvites")]
+        public ActionResult ToggleParticipantInvites(string roomId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (room.OwnerId != CurrentUserId) return Forbid();
+
+            _roomManager.ToggleParticipantInvites(roomId);
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Leave")]
+        public ActionResult LeaveRoom(string roomId)
+        {
+            _roomManager.LeaveRoom(roomId, CurrentUserId);
+            return Ok();
+        }
+
+        [HttpGet("Rooms/{roomId}/Updates")]
+        public ActionResult<JellTogetherRoom> GetRoomUpdates(string roomId, [FromQuery] DateTime since)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanView(room)) return Forbid();
+            
+            if (room.LastUpdated <= since)
+            {
+                return StatusCode(304);
+            }
+
+            return Ok(RoomForUser(room));
+        }
+
+        [HttpPost("Rooms/{roomId}/Participants/{userId}/Permissions")]
+        public ActionResult SetPermissions(string roomId, string userId, [FromBody] ParticipantPermissions permissions)
+        {
+            if (permissions == null) return BadRequest("Permissions payload is required.");
+
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+
+            var callerId = CurrentUserId;
+            // Only Owner or Co-Host can change permissions
+            if (room.OwnerId != callerId && !room.CoHostIds.Contains(callerId))
+            {
+                return Forbid();
+            }
+
+            _roomManager.SetUserPermissions(roomId, userId, permissions.CanChat, permissions.CanControlPlayback);
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Participants/{userId}/Promote")]
+        public ActionResult TogglePromote(string roomId, string userId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+
+            var callerId = CurrentUserId;
+            // Only Owner can promote/demote co-hosts
+            if (room.OwnerId != callerId)
+            {
+                return Forbid();
+            }
+
+            _roomManager.ToggleCoHost(roomId, userId);
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/TransferOwnership")]
+        public ActionResult TransferOwnership(string roomId, [FromBody] string newOwnerId)
+        {
+            if (string.IsNullOrWhiteSpace(newOwnerId)) return BadRequest("New owner id is required.");
+
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+
+            var callerId = CurrentUserId;
+            // Only current Owner can transfer ownership
+            if (room.OwnerId != callerId)
+            {
+                return Forbid();
+            }
+
+            _roomManager.TransferOwnership(roomId, newOwnerId);
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Polls")]
+        public ActionResult CreatePoll(string roomId, [FromBody] CreatePollRequest request)
+        {
+            if (request == null) return BadRequest("Poll payload is required.");
+            if (string.IsNullOrWhiteSpace(request.Question)) return BadRequest("Poll question is required.");
+            if (request.Options == null) return BadRequest("Poll options are required.");
+            if (request.Options.Count(o => !string.IsNullOrWhiteSpace(o)) < 2) return BadRequest("Poll requires at least two options.");
+
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+
+            if (!CanManage(room)) return Forbid();
+
+            _roomManager.CreatePoll(roomId, request.Question, request.Options);
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Polls/{pollId}/Vote")]
+        public ActionResult Vote(string roomId, string pollId, [FromBody] string option)
+        {
+            if (string.IsNullOrWhiteSpace(option)) return BadRequest("Poll option is required.");
+
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+            _roomManager.Vote(roomId, pollId, CurrentUserId, option);
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Webhook")]
+        public ActionResult SetWebhook(string roomId, [FromBody] string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return BadRequest("Webhook URL is required.");
+
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+
+            if (room.OwnerId != CurrentUserId) return Forbid();
+
+            if (!_roomManager.SetWebhook(roomId, url)) return BadRequest("Only Discord webhook URLs are allowed.");
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Theme")]
+        public ActionResult SetTheme(string roomId, [FromBody] string theme)
+        {
+            if (string.IsNullOrWhiteSpace(theme)) return BadRequest("Theme is required.");
+
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+
+            if (!CanManage(room)) return Forbid();
+
+            _roomManager.SetTheme(roomId, theme);
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Buffering")]
+        public ActionResult SetBuffering(string roomId, [FromBody] bool isBuffering)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+            _roomManager.SetBuffering(roomId, CurrentUserId, isBuffering);
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/ToggleControl")]
+        public ActionResult ToggleControl(string roomId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+
+            if (room.OwnerId != CurrentUserId) return Forbid();
+
+            _roomManager.ToggleHostControl(roomId);
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Messages")]
+        public ActionResult AddMessage(string roomId, [FromBody] string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return BadRequest("Message text is required.");
+
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!room.Participants.Contains(CurrentUserId)) return Forbid();
+
+            var message = new ChatMessage
+            {
+                UserId = CurrentUserId,
+                UserName = CurrentUserId,
+                Text = text
+            };
+
+            if (!_roomManager.AddMessage(roomId, message)) return Forbid();
+            return Ok();
+        }
+        [HttpGet("Rooms/{roomId}/Recap")]
+        public ActionResult<RoomStats> GetRecap(string roomId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanView(room)) return Forbid();
+            return Ok(room.Stats);
+        }
+
+        [HttpPost("Rooms/{roomId}/DiscordStage")]
+        public ActionResult SetDiscordStage(string roomId, [FromBody] DiscordStageRequest request)
+        {
+            if (request == null) return BadRequest("Discord stage payload is required.");
+            if (string.IsNullOrWhiteSpace(request.BotToken)) return BadRequest("Discord bot token is required.");
+            if (string.IsNullOrWhiteSpace(request.StageId)) return BadRequest("Discord stage id is required.");
+
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (room.OwnerId != CurrentUserId) return Forbid();
+
+            _roomManager.SetDiscordStage(roomId, request.BotToken, request.StageId);
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/SyncStage")]
+        public async Task<ActionResult> SyncStage(string roomId, [FromBody] string title)
+        {
+            if (string.IsNullOrWhiteSpace(title)) return BadRequest("Discord stage title is required.");
+
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManage(room)) return Forbid();
+
+            await _roomManager.UpdateDiscordStage(roomId, title);
+            return Ok();
+        }
+
+        private bool CanView(JellTogetherRoom room)
+        {
+            return !room.IsPrivate ||
+                room.Participants.Contains(CurrentUserId) ||
+                room.OwnerId == CurrentUserId ||
+                room.CoHostIds.Contains(CurrentUserId);
+        }
+
+        private bool CanManage(JellTogetherRoom room)
+        {
+            return room.OwnerId == CurrentUserId || room.CoHostIds.Contains(CurrentUserId);
+        }
+
+        private JellTogetherRoom RoomForUser(JellTogetherRoom room)
+        {
+            room.DiscordBotToken = null;
+
+            if (room.OwnerId != CurrentUserId && !room.CoHostIds.Contains(CurrentUserId))
+            {
+                room.DiscordWebhookUrl = null;
+                room.Invitations = new List<JellTogetherInvite>();
+            }
+
+            return room;
+        }
+
+        private string CompanionPageUrl(string? code = null)
+        {
+            var configuredCompanion = NormalizeBaseUrl(Plugin.Instance?.Configuration.PublicCompanionUrl);
+            if (!string.IsNullOrEmpty(configuredCompanion))
+            {
+                return CompanionPageUrlFromConfiguredCompanion(configuredCompanion, code);
+            }
+
+            var configuredJellyfin = NormalizeBaseUrl(Plugin.Instance?.Configuration.PublicJellyfinUrl);
+            if (!string.IsNullOrEmpty(configuredJellyfin))
+            {
+                return WebConfigurationPageUrl(configuredJellyfin, code);
+            }
+
+            var basePath = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
+            var query = string.IsNullOrWhiteSpace(code) ? string.Empty : $"?code={Uri.EscapeDataString(code.Trim())}";
+            return $"{basePath}/web/{query}#/configurationpage?name=jelltogether";
+        }
+
+        private static string NormalizeBaseUrl(string? value)
+        {
+            return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim().TrimEnd('/');
+        }
+
+        private static bool IsValidPublicUrl(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return true;
+            if (!Uri.TryCreate(value, UriKind.Absolute, out var uri)) return false;
+            if (uri.Scheme == Uri.UriSchemeHttps) return true;
+            return uri.Scheme == Uri.UriSchemeHttp && IsLocalOrPrivateHost(uri.Host);
+        }
+
+        private static string AddInviteCode(string url, string? code)
+        {
+            if (string.IsNullOrWhiteSpace(code)) return url;
+            return QueryHelpers.AddQueryString(url, "code", code.Trim());
+        }
+
+        private static string CompanionPageUrlFromConfiguredCompanion(string configuredCompanion, string? code)
+        {
+            if (!Uri.TryCreate(configuredCompanion, UriKind.Absolute, out var uri))
+            {
+                return AddInviteCode(configuredCompanion, code);
+            }
+
+            if (uri.AbsolutePath.Equals("/jelltogether/Companion", StringComparison.OrdinalIgnoreCase) ||
+                uri.AbsolutePath.StartsWith("/jelltogether/Invite/", StringComparison.OrdinalIgnoreCase))
+            {
+                return WebConfigurationPageUrl(uri.GetLeftPart(UriPartial.Authority), code);
+            }
+
+            return AddInviteCode(configuredCompanion, code);
+        }
+
+        private static string WebConfigurationPageUrl(string baseUrl, string? code)
+        {
+            var query = string.IsNullOrWhiteSpace(code) ? string.Empty : $"?code={Uri.EscapeDataString(code.Trim())}";
+            return $"{NormalizeBaseUrl(baseUrl)}/web/{query}#/configurationpage?name=jelltogether";
+        }
+
+        private static bool IsLocalOrPrivateHost(string host)
+        {
+            return host.Equals("localhost", StringComparison.OrdinalIgnoreCase) ||
+                host.Equals("127.0.0.1", StringComparison.OrdinalIgnoreCase) ||
+                host.Equals("::1", StringComparison.OrdinalIgnoreCase) ||
+                host.StartsWith("10.", StringComparison.OrdinalIgnoreCase) ||
+                host.StartsWith("192.168.", StringComparison.OrdinalIgnoreCase) ||
+                IsPrivate172Host(host);
+        }
+
+        private static bool IsPrivate172Host(string host)
+        {
+            var parts = host.Split('.');
+            return parts.Length == 4 &&
+                parts[0] == "172" &&
+                int.TryParse(parts[1], out var second) &&
+                second >= 16 &&
+                second <= 31;
+        }
+
+        private bool IsElevatedUser()
+        {
+            if (User.IsInRole("Administrator")) return true;
+
+            return User.Claims.Any(claim =>
+                IsTruthyAdminClaim(claim) ||
+                claim.Value.Equals("Administrator", StringComparison.OrdinalIgnoreCase) ||
+                claim.Value.Equals("RequiresElevation", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static bool IsTruthyAdminClaim(Claim claim)
+        {
+            var claimType = claim.Type.Split('/').Last();
+            return claimType.Equals("IsAdministrator", StringComparison.OrdinalIgnoreCase) &&
+                bool.TryParse(claim.Value, out var isAdmin) &&
+                isAdmin;
+        }
+    }
+}
