@@ -1,5 +1,9 @@
 # JellTogether Changelog
 
+## [2026-05-13] - Library access media folders
+- Changed global library access settings to load actual Jellyfin media folders before falling back to user views.
+- Added queue options to add an entire season, series, or matching collection when selecting Jellyfin media.
+
 ## [2026-05-13] - Sidebar settings routing
 - Changed the Jellyfin sidebar entry to open the global settings page.
 

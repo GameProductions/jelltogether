@@ -972,6 +972,23 @@ h1 {
     font-size: 0.76rem;
 }
 
+.modal-subtitle {
+    margin: -4px 0 6px;
+    color: var(--text-muted);
+    line-height: 1.45;
+}
+
+.queue-add-options {
+    display: grid;
+    gap: 10px;
+}
+
+.queue-add-options .primary-command,
+.queue-add-options .secondary-command {
+    width: 100%;
+    justify-content: center;
+}
+
 .queue-actions {
     display: inline-flex;
     align-items: center;

@@ -740,7 +740,13 @@ class JellTogetherApp {
             const libraries = this.enabledLibraryIds.length ? this.enabledLibraryIds : [''];
             const searches = libraries.map(libraryId => this.searchLibrary(term, libraryId));
             const grouped = await Promise.all(searches);
-            const results = grouped.flat().slice(0, 24);
+            const seen = new Set();
+            const results = grouped.flat().filter(item => {
+                const key = item.mediaId || `${item.title}-${item.mediaType}`;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            }).slice(0, 24);
             if (!results.length) {
                 container.appendChild(this.textEl('div', 'No matching media found.', 'loading'));
                 return;
@@ -753,7 +759,7 @@ class JellTogetherApp {
                 button.appendChild(this.textEl('strong', item.title));
                 button.appendChild(this.textEl('span', [item.mediaType, item.year].filter(Boolean).join(' • ') || 'Jellyfin item'));
                 if (item.overview) button.appendChild(this.textEl('span', item.overview));
-                button.onclick = () => this.addMediaToQueue(item);
+                button.onclick = () => this.showQueueAddOptions(item);
                 container.appendChild(button);
             });
         } catch (e) {
@@ -768,9 +774,9 @@ class JellTogetherApp {
         const params = new URLSearchParams({
             Recursive: 'true',
             SearchTerm: term,
-            IncludeItemTypes: 'Movie,Episode',
+            IncludeItemTypes: 'Movie,Episode,Series,Season,BoxSet',
             Limit: '12',
-            Fields: 'Overview'
+            Fields: 'Overview,ParentId'
         });
         if (libraryId) params.set('ParentId', libraryId);
 
@@ -782,7 +788,12 @@ class JellTogetherApp {
             libraryId,
             mediaType: item.Type || item.type || item.MediaType || item.mediaType || '',
             overview: item.Overview || item.overview || '',
-            year: item.ProductionYear || item.productionYear || ''
+            year: item.ProductionYear || item.productionYear || '',
+            seriesId: item.SeriesId || item.seriesId || '',
+            seriesName: item.SeriesName || item.seriesName || '',
+            seasonId: item.SeasonId || item.seasonId || '',
+            seasonName: item.SeasonName || item.seasonName || '',
+            parentId: item.ParentId || item.parentId || ''
         })).filter(item => item.mediaId && item.title);
     }
 
@@ -796,6 +807,147 @@ class JellTogetherApp {
             return `${series} ${code} - ${name}`;
         }
         return name;
+    }
+
+    async showQueueAddOptions(item) {
+        const modal = document.getElementById('app-modal');
+        if (!modal || !item?.mediaId) {
+            await this.addMediaToQueue(item);
+            return;
+        }
+
+        this.clear(modal);
+        modal.className = 'app-modal glass-card queue-search-modal';
+        modal.appendChild(this.textEl('h3', 'Add to Queue'));
+        modal.appendChild(this.textEl('p', item.title, 'modal-subtitle'));
+
+        const options = document.createElement('div');
+        options.className = 'queue-add-options';
+        options.appendChild(this.button('Add this item', 'primary-command', () => this.addMediaToQueue(item)));
+        options.appendChild(this.textEl('div', 'Looking for seasons, series, and collections...', 'loading'));
+        modal.appendChild(options);
+
+        const actionRow = document.createElement('div');
+        actionRow.className = 'split-actions';
+        actionRow.appendChild(this.button('Back to search', 'secondary-command', () => this.showQueueSearchModal()));
+        actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
+        modal.appendChild(actionRow);
+
+        const groupOptions = await this.queueGroupOptions(item);
+        const loading = options.querySelector('.loading');
+        if (loading) loading.remove();
+
+        if (!groupOptions.length) {
+            options.appendChild(this.textEl('div', 'No larger season, series, or collection was found for this item.', 'loading'));
+            return;
+        }
+
+        groupOptions.forEach(option => {
+            const label = `${option.label} (${option.items.length})`;
+            options.appendChild(this.button(label, 'secondary-command', () => this.addMediaGroupToQueue(option.items, option.successMessage)));
+        });
+    }
+
+    async queueGroupOptions(item) {
+        const options = [];
+        const addOption = async (key, label, parentId, includeTypes, successMessage) => {
+            if (!parentId || options.some(option => option.key === key)) return;
+            const items = await this.fetchQueueGroupItems(parentId, includeTypes, item.libraryId);
+            const filtered = items.filter(groupItem => groupItem.mediaId !== item.mediaId);
+            if (filtered.length) options.push({ key, label, items, successMessage });
+        };
+
+        const type = String(item.mediaType || '').toLowerCase();
+        if (type === 'episode') {
+            await addOption(`season-${item.seasonId || item.parentId}`, `Add ${item.seasonName || 'season'}`, item.seasonId || item.parentId, 'Episode', 'Season added to queue.');
+            await addOption(`series-${item.seriesId}`, `Add ${item.seriesName || 'series'}`, item.seriesId, 'Episode', 'Series added to queue.');
+        } else if (type === 'season') {
+            await addOption(`season-${item.mediaId}`, `Add ${item.title}`, item.mediaId, 'Episode', 'Season added to queue.');
+            if (item.seriesId) await addOption(`series-${item.seriesId}`, `Add ${item.seriesName || 'series'}`, item.seriesId, 'Episode', 'Series added to queue.');
+        } else if (type === 'series') {
+            await addOption(`series-${item.mediaId}`, `Add ${item.title}`, item.mediaId, 'Episode', 'Series added to queue.');
+        } else if (type === 'boxset') {
+            await addOption(`collection-${item.mediaId}`, `Add ${item.title}`, item.mediaId, 'Movie,Episode,Series', 'Collection added to queue.');
+        } else if (type === 'movie') {
+            const collections = await this.findCollectionsForItem(item);
+            collections.forEach(collection => options.push(collection));
+        }
+
+        return options;
+    }
+
+    async fetchQueueGroupItems(parentId, includeTypes, libraryId = '') {
+        const userId = this.currentJellyfinUserId();
+        if (!userId || !parentId) return [];
+        const params = new URLSearchParams({
+            ParentId: parentId,
+            Recursive: 'true',
+            IncludeItemTypes: includeTypes,
+            SortBy: 'ParentIndexNumber,IndexNumber,SortName',
+            SortOrder: 'Ascending',
+            Fields: 'Overview,ParentId',
+            Limit: '500'
+        });
+        const data = await this.fetchJson(`/Users/${encodeURIComponent(userId)}/Items?${params}`);
+        return (data.Items || data.items || [])
+            .flatMap(found => this.queueItemsFromJellyfinItem(found, libraryId))
+            .filter(found => found.mediaId && found.title);
+    }
+
+    queueItemsFromJellyfinItem(item, libraryId = '') {
+        const type = item.Type || item.type || item.MediaType || item.mediaType || '';
+        if (String(type).toLowerCase() === 'series') {
+            return [{
+                title: item.Name || item.name || 'Untitled series',
+                mediaId: item.Id || item.id || '',
+                libraryId,
+                mediaType: type,
+                overview: item.Overview || item.overview || ''
+            }];
+        }
+
+        return [{
+            title: this.mediaTitle(item),
+            mediaId: item.Id || item.id || '',
+            libraryId,
+            mediaType: type,
+            overview: item.Overview || item.overview || ''
+        }];
+    }
+
+    async findCollectionsForItem(item) {
+        const userId = this.currentJellyfinUserId();
+        if (!userId || !item?.mediaId) return [];
+
+        const params = new URLSearchParams({
+            Recursive: 'true',
+            IncludeItemTypes: 'BoxSet',
+            Fields: 'Overview',
+            Limit: '100'
+        });
+
+        try {
+            const data = await this.fetchJson(`/Users/${encodeURIComponent(userId)}/Items?${params}`);
+            const collections = data.Items || data.items || [];
+            const matches = [];
+            for (const collection of collections) {
+                const collectionId = collection.Id || collection.id || '';
+                if (!collectionId) continue;
+                const members = await this.fetchQueueGroupItems(collectionId, 'Movie,Episode,Series', item.libraryId);
+                if (members.some(member => member.mediaId === item.mediaId)) {
+                    matches.push({
+                        key: `collection-${collectionId}`,
+                        label: `Add ${collection.Name || collection.name || 'collection'}`,
+                        items: members,
+                        successMessage: 'Collection added to queue.'
+                    });
+                }
+            }
+            return matches;
+        } catch (e) {
+            console.warn('Collection lookup failed:', e);
+            return [];
+        }
     }
 
     currentJellyfinUserId() {
@@ -814,6 +966,22 @@ class JellTogetherApp {
         } catch (e) {
             console.error("Queue Error:", e);
             this.showToast("Failed to add queue item.", 'error');
+        }
+    }
+
+    async addMediaGroupToQueue(items, successMessage) {
+        if (!items?.length || !this.currentRoom) return;
+        try {
+            for (const item of items) {
+                const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Queue`, item);
+                if (!resp.ok) throw new Error("Queue group add failed");
+            }
+            this.hideModal();
+            await this.refreshRoom();
+            this.showToast(successMessage || "Items added to queue.", 'success');
+        } catch (e) {
+            console.error("Queue Group Error:", e);
+            this.showToast("Failed to add all queue items.", 'error');
         }
     }
 

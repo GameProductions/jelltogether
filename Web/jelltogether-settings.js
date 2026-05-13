@@ -69,15 +69,38 @@ class JellTogetherSettingsApp {
         container.replaceChildren(this.textEl('div', 'Loading libraries...', 'loading'));
 
         try {
-            const userId = this.currentUserId();
-            if (!userId) throw new Error('Missing current user id.');
-            const result = await this.fetchJson(`/Users/${encodeURIComponent(userId)}/Views`);
-            this.libraries = result.Items || result.items || [];
+            this.libraries = await this.fetchServerLibraries();
             this.renderLibraries();
         } catch (e) {
             console.error('Library load failed:', e);
             container.replaceChildren(this.textEl('div', 'Libraries could not be loaded.', 'loading'));
         }
+    }
+
+    async fetchServerLibraries() {
+        try {
+            const result = await this.fetchJson('/Library/MediaFolders?IsHidden=false');
+            const items = result.Items || result.items || [];
+            if (items.length) return this.normalizeLibraries(items, 'server library');
+        } catch (e) {
+            console.warn('Media folder lookup failed, falling back to user views:', e);
+        }
+
+        const userId = this.currentUserId();
+        if (!userId) throw new Error('Missing current user id.');
+        const result = await this.fetchJson(`/Users/${encodeURIComponent(userId)}/Views`);
+        return this.normalizeLibraries(result.Items || result.items || [], 'user view');
+    }
+
+    normalizeLibraries(items, fallbackType) {
+        return items
+            .map(item => ({
+                id: item.Id || item.id || '',
+                name: item.Name || item.name || 'Untitled library',
+                type: item.CollectionType || item.collectionType || item.Type || item.type || fallbackType
+            }))
+            .filter(item => item.id)
+            .sort((a, b) => a.name.localeCompare(b.name));
     }
 
     currentUserId() {
@@ -95,20 +118,16 @@ class JellTogetherSettingsApp {
 
         const selected = new Set(this.settings?.enabledLibraryIds || []);
         this.libraries.forEach(library => {
-            const id = library.Id || library.id;
-            const name = library.Name || library.name || 'Untitled library';
-            const type = library.CollectionType || library.collectionType || library.Type || library.type || 'library';
-
             const label = document.createElement('label');
             label.className = 'library-option';
             label.innerHTML = `<span><strong></strong><em></em></span>`;
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
-            checkbox.value = id;
-            checkbox.checked = selected.size === 0 || selected.has(id);
+            checkbox.value = library.id;
+            checkbox.checked = selected.size === 0 || selected.has(library.id);
             label.prepend(checkbox);
-            label.querySelector('strong').textContent = name;
-            label.querySelector('em').textContent = type;
+            label.querySelector('strong').textContent = library.name;
+            label.querySelector('em').textContent = library.type;
             container.appendChild(label);
         });
     }
