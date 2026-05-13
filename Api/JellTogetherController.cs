@@ -777,8 +777,7 @@ namespace JellTogether.Plugin.Api
 
         private static string WebConfigurationPageUrl(string baseUrl, string? code)
         {
-            var query = string.IsNullOrWhiteSpace(code) ? string.Empty : $"?code={Uri.EscapeDataString(code.Trim())}";
-            return $"{NormalizeBaseUrl(baseUrl)}/web/{query}#/configurationpage?name=jelltogether-companion";
+            return AddInviteCode($"{NormalizeBaseUrl(baseUrl)}/jelltogether/Companion", code);
         }
 
         private static bool IsLocalOrPrivateHost(string host)

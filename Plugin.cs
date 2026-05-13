@@ -38,15 +38,6 @@ namespace JellTogether.Plugin
                 },
                 new PluginPageInfo
                 {
-                    Name = "jelltogether-companion",
-                    DisplayName = "JellTogether",
-                    EmbeddedResourcePath = WebResourcePrefix + ".jelltogether.html",
-                    EnableInMainMenu = true,
-                    MenuSection = "home",
-                    MenuIcon = "movie"
-                },
-                new PluginPageInfo
-                {
                     Name = "jelltogether.css",
                     EmbeddedResourcePath = WebResourcePrefix + ".jelltogether.css"
                 },

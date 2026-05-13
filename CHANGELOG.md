@@ -1,5 +1,9 @@
 # JellTogether Changelog
 
+## [2026-05-13] - Listing settings route and banner refresh
+- Fixed Jellyfin plugin listing settings navigation so it can only open global settings.
+- Refreshed the Jellyfin listing banner with a taller 16:9 watch-party design.
+
 ## [2026-05-13] - Plugin settings navigation fix
 - Fixed Jellyfin plugin listing settings navigation so it opens global settings instead of the companion page.
 
