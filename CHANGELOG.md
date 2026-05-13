@@ -1,5 +1,9 @@
 # JellTogether Changelog
 
+## [2026-05-13] - Room moderation controls
+- Added join approval, join locking, pending join requests, kick, ban, unban, and reject controls.
+- Added per-participant permissions for chat, playback control, queue adds, and delegated participant management.
+
 ## [2026-05-13] - Start watch party playback
 - Added host/co-host Start controls for queued Jellyfin media.
 - Added playback target selection for active remote-controllable Jellyfin sessions in the room.

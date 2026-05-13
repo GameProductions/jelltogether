@@ -17,9 +17,13 @@ namespace JellTogether.Plugin.Services
         public bool IsPrivate { get; set; } = false;
         public bool AllowParticipantInvites { get; set; } = true;
         public bool AllowQueueVoting { get; set; } = true;
+        public bool RequireJoinApproval { get; set; } = false;
+        public bool IsJoinLocked { get; set; } = false;
         public string OwnerId { get; set; } = string.Empty;
         public List<string> CoHostIds { get; set; } = new();
         public List<string> Participants { get; set; } = new();
+        public List<string> PendingParticipantIds { get; set; } = new();
+        public List<string> BannedParticipantIds { get; set; } = new();
         public Dictionary<string, int> CinemaSeats { get; set; } = new(); // UserId -> SeatIndex
         public List<JellTogetherInvite> Invitations { get; set; } = new();
         public List<QueueItem> Queue { get; set; } = new();
@@ -107,6 +111,18 @@ namespace JellTogether.Plugin.Services
     {
         public bool CanChat { get; set; } = true;
         public bool CanControlPlayback { get; set; } = true;
+        public bool CanAddToQueue { get; set; } = true;
+        public bool CanManageParticipants { get; set; } = false;
+    }
+
+    public enum JoinRoomResult
+    {
+        Joined,
+        PendingApproval,
+        Locked,
+        Banned,
+        Forbidden,
+        NotFound
     }
 
     public class ChatMessage
@@ -355,39 +371,58 @@ namespace JellTogether.Plugin.Services
             }
         }
 
-        public bool JoinRoom(string roomId, string userId, string? inviteCode = null)
+        public void ToggleJoinApproval(string roomId)
         {
             lock (_roomLock)
             {
-                if (!_rooms.TryGetValue(roomId, out var room)) return false;
-
-                if (!room.Participants.Contains(userId))
+                if (_rooms.TryGetValue(roomId, out var room))
                 {
-                    var invite = string.IsNullOrWhiteSpace(inviteCode)
-                        ? null
-                        : room.Invitations.FirstOrDefault(i => IsInviteUsable(i, inviteCode));
-
-                    var hasRoomCode = !string.IsNullOrWhiteSpace(inviteCode) &&
-                        room.RoomCode.Equals(inviteCode, StringComparison.OrdinalIgnoreCase);
-
-                    if (room.IsPrivate && !hasRoomCode && invite == null) return false;
-
-                    room.Participants.Add(userId);
-                    room.CinemaSeats[userId] = NextSeat(room);
-
-                    var perms = new ParticipantPermissions();
-                    if (invite != null)
-                    {
-                        perms.CanChat = invite.DefaultPermissions.CanChat;
-                        perms.CanControlPlayback = invite.DefaultPermissions.CanControlPlayback;
-                        invite.CurrentUses++;
-                    }
-
-                    room.Permissions[userId] = perms;
+                    room.RequireJoinApproval = !room.RequireJoinApproval;
                     Touch(room);
                 }
+            }
+        }
 
-                return true;
+        public void ToggleJoinLock(string roomId)
+        {
+            lock (_roomLock)
+            {
+                if (_rooms.TryGetValue(roomId, out var room))
+                {
+                    room.IsJoinLocked = !room.IsJoinLocked;
+                    Touch(room);
+                }
+            }
+        }
+
+        public JoinRoomResult JoinRoom(string roomId, string userId, string? inviteCode = null)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room)) return JoinRoomResult.NotFound;
+                if (room.BannedParticipantIds.Contains(userId)) return JoinRoomResult.Banned;
+                if (room.Participants.Contains(userId)) return JoinRoomResult.Joined;
+                if (room.IsJoinLocked) return JoinRoomResult.Locked;
+
+                var invite = string.IsNullOrWhiteSpace(inviteCode)
+                    ? null
+                    : room.Invitations.FirstOrDefault(i => IsInviteUsable(i, inviteCode));
+
+                var hasRoomCode = !string.IsNullOrWhiteSpace(inviteCode) &&
+                    room.RoomCode.Equals(inviteCode, StringComparison.OrdinalIgnoreCase);
+
+                if (room.IsPrivate && !hasRoomCode && invite == null) return JoinRoomResult.Forbidden;
+
+                if (room.RequireJoinApproval)
+                {
+                    if (!room.PendingParticipantIds.Contains(userId)) room.PendingParticipantIds.Add(userId);
+                    Touch(room);
+                    return JoinRoomResult.PendingApproval;
+                }
+
+                AddParticipant(room, userId, invite);
+                Touch(room);
+                return JoinRoomResult.Joined;
             }
         }
 
@@ -395,14 +430,62 @@ namespace JellTogether.Plugin.Services
         {
             lock (_roomLock)
             {
-                if (_rooms.TryGetValue(roomId, out var room) && room.Participants.Remove(userId))
-                {
-                    room.Permissions.Remove(userId);
-                    room.CoHostIds.Remove(userId);
-                    room.CinemaSeats.Remove(userId);
-                    room.BufferingUserIds.Remove(userId);
-                    Touch(room);
-                }
+                if (_rooms.TryGetValue(roomId, out var room)) RemoveParticipant(room, userId);
+            }
+        }
+
+        public bool ApproveJoin(string roomId, string userId)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room) || !room.PendingParticipantIds.Remove(userId)) return false;
+                AddParticipant(room, userId, null);
+                Touch(room);
+                return true;
+            }
+        }
+
+        public bool RejectJoin(string roomId, string userId)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room)) return false;
+                var removed = room.PendingParticipantIds.Remove(userId);
+                if (removed) Touch(room);
+                return removed;
+            }
+        }
+
+        public bool KickParticipant(string roomId, string userId)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room) || room.OwnerId == userId) return false;
+                return RemoveParticipant(room, userId);
+            }
+        }
+
+        public bool BanParticipant(string roomId, string userId)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room) || room.OwnerId == userId) return false;
+                if (!room.BannedParticipantIds.Contains(userId)) room.BannedParticipantIds.Add(userId);
+                room.PendingParticipantIds.Remove(userId);
+                RemoveParticipant(room, userId, touch: false);
+                Touch(room);
+                return true;
+            }
+        }
+
+        public bool UnbanParticipant(string roomId, string userId)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room)) return false;
+                var removed = room.BannedParticipantIds.Remove(userId);
+                if (removed) Touch(room);
+                return removed;
             }
         }
 
@@ -420,7 +503,7 @@ namespace JellTogether.Plugin.Services
             }
         }
 
-        public void SetUserPermissions(string roomId, string userId, bool canChat, bool canControlPlayback)
+        public void SetUserPermissions(string roomId, string userId, bool canChat, bool canControlPlayback, bool canAddToQueue, bool canManageParticipants)
         {
             lock (_roomLock)
             {
@@ -432,6 +515,8 @@ namespace JellTogether.Plugin.Services
 
                     room.Permissions[userId].CanChat = canChat;
                     room.Permissions[userId].CanControlPlayback = canControlPlayback;
+                    room.Permissions[userId].CanAddToQueue = canAddToQueue;
+                    room.Permissions[userId].CanManageParticipants = canManageParticipants;
                     Touch(room);
                 }
             }
@@ -662,6 +747,14 @@ namespace JellTogether.Plugin.Services
             {
                 if (_rooms.TryGetValue(roomId, out var room) && room.Participants.Contains(userId))
                 {
+                    if (room.Permissions.TryGetValue(userId, out var perm) &&
+                        !perm.CanAddToQueue &&
+                        room.OwnerId != userId &&
+                        !room.CoHostIds.Contains(userId))
+                    {
+                        return;
+                    }
+
                     room.Queue.Add(new QueueItem
                     {
                         Title = TrimToLimit(title, 200),
@@ -817,6 +910,36 @@ namespace JellTogether.Plugin.Services
             return invite.Code.Equals(code, StringComparison.OrdinalIgnoreCase) &&
                 (invite.ExpiresAt == null || invite.ExpiresAt > DateTime.UtcNow) &&
                 (invite.MaxUses == 0 || invite.CurrentUses < invite.MaxUses);
+        }
+
+        private static void AddParticipant(JellTogetherRoom room, string userId, JellTogetherInvite? invite)
+        {
+            if (!room.Participants.Contains(userId)) room.Participants.Add(userId);
+            room.PendingParticipantIds.Remove(userId);
+            room.CinemaSeats[userId] = NextSeat(room);
+
+            var perms = new ParticipantPermissions();
+            if (invite != null)
+            {
+                perms.CanChat = invite.DefaultPermissions.CanChat;
+                perms.CanControlPlayback = invite.DefaultPermissions.CanControlPlayback;
+                perms.CanAddToQueue = invite.DefaultPermissions.CanAddToQueue;
+                perms.CanManageParticipants = invite.DefaultPermissions.CanManageParticipants;
+                invite.CurrentUses++;
+            }
+
+            room.Permissions[userId] = perms;
+        }
+
+        private bool RemoveParticipant(JellTogetherRoom room, string userId, bool touch = true)
+        {
+            var removed = room.Participants.Remove(userId);
+            room.Permissions.Remove(userId);
+            room.CoHostIds.Remove(userId);
+            room.CinemaSeats.Remove(userId);
+            room.BufferingUserIds.Remove(userId);
+            if (removed && touch) Touch(room);
+            return removed;
         }
 
         private static int NextSeat(JellTogetherRoom room)

@@ -20,6 +20,7 @@ class JellTogetherApp {
 
         this._lastCinemaData = null;
         this._lastParticipantData = null;
+        this._lastPendingData = null;
         this._lastQueueData = null;
         this._lastTheoryData = null;
         this.activeToasts = new Set();
@@ -221,6 +222,7 @@ class JellTogetherApp {
     resetRenderCaches() {
         this._lastCinemaData = null;
         this._lastParticipantData = null;
+        this._lastPendingData = null;
         this._lastQueueData = null;
         this._lastTheoryData = null;
     }
@@ -335,6 +337,10 @@ class JellTogetherApp {
             isHostOnlyControl: this.prop(room, 'isHostOnlyControl', null, false),
             allowParticipantInvites: this.prop(room, 'allowParticipantInvites', null, true),
             allowQueueVoting: this.prop(room, 'allowQueueVoting', null, true),
+            requireJoinApproval: this.prop(room, 'requireJoinApproval', null, false),
+            isJoinLocked: this.prop(room, 'isJoinLocked', null, false),
+            pendingParticipantIds: this.prop(room, 'pendingParticipantIds', null, []),
+            bannedParticipantIds: this.prop(room, 'bannedParticipantIds', null, []),
             nowPlayingTitle: this.prop(room, 'nowPlayingTitle', null, ''),
             nowPlayingMediaId: this.prop(room, 'nowPlayingMediaId', null, ''),
             nowPlayingStartedAt: this.prop(room, 'nowPlayingStartedAt', null, null),
@@ -598,6 +604,14 @@ class JellTogetherApp {
         await this.postRoomAction('ToggleQueueVoting');
     }
 
+    async toggleJoinApproval() {
+        await this.postRoomAction('ToggleJoinApproval');
+    }
+
+    async toggleJoinLock() {
+        await this.postRoomAction('ToggleJoinLock');
+    }
+
     async togglePrivacy() {
         await this.postRoomAction('TogglePrivacy');
     }
@@ -685,6 +699,20 @@ class JellTogetherApp {
             controlBtn.classList.toggle('warning', this.currentRoom.isHostOnlyControl);
         }
 
+        const approvalBtn = document.getElementById('btn-toggle-join-approval');
+        if (approvalBtn) {
+            approvalBtn.style.display = this.canManageParticipants() ? 'inline-flex' : 'none';
+            approvalBtn.textContent = this.currentRoom.requireJoinApproval ? 'Approval on' : 'Approval off';
+            approvalBtn.classList.toggle('active', this.currentRoom.requireJoinApproval);
+        }
+
+        const lockBtn = document.getElementById('btn-toggle-join-lock');
+        if (lockBtn) {
+            lockBtn.style.display = this.canManageParticipants() ? 'inline-flex' : 'none';
+            lockBtn.textContent = this.currentRoom.isJoinLocked ? 'Locked' : 'Join open';
+            lockBtn.classList.toggle('warning', this.currentRoom.isJoinLocked);
+        }
+
         const queueVotingBtn = document.getElementById('btn-toggle-queue-voting');
         if (queueVotingBtn) {
             queueVotingBtn.style.display = amOwner ? 'inline-flex' : 'none';
@@ -709,6 +737,7 @@ class JellTogetherApp {
 
         this.renderPlayerState();
         this.renderParticipants();
+        this.renderPendingParticipants();
         this.renderPolls();
         this.renderChat();
         this.renderQueue();
@@ -1693,7 +1722,13 @@ class JellTogetherApp {
     }
 
     renderParticipants() {
-        const dataStr = JSON.stringify(this.currentRoom.participants);
+        const dataStr = JSON.stringify({
+            participants: this.currentRoom.participants,
+            ownerId: this.currentRoom.ownerId,
+            coHostIds: this.currentRoom.coHostIds,
+            permissions: this.currentRoom.permissions,
+            canManageParticipants: this.canManageParticipants()
+        });
         if (dataStr === this._lastParticipantData) return;
         this._lastParticipantData = dataStr;
 
@@ -1710,8 +1745,102 @@ class JellTogetherApp {
                 item.appendChild(this.textEl('span', 'Co-host', 'role-badge role-cohost'));
             }
 
+            const perms = this.currentRoom.permissions?.[userId] || {};
+            const badges = document.createElement('div');
+            badges.className = 'participant-permission-badges';
+            if (perms.canChat === false) badges.appendChild(this.textEl('span', 'Muted'));
+            if (perms.canControlPlayback === false) badges.appendChild(this.textEl('span', 'No control'));
+            if (perms.canAddToQueue === false) badges.appendChild(this.textEl('span', 'No queue'));
+            if (perms.canManageParticipants === true) badges.appendChild(this.textEl('span', 'Moderator'));
+            if (badges.childElementCount) item.appendChild(badges);
+
+            if (this.canManageParticipants() && userId !== this.currentUser && this.currentRoom.ownerId !== userId) {
+                const actions = document.createElement('div');
+                actions.className = 'participant-actions';
+                actions.appendChild(this.button(perms.canChat === false ? 'Unmute' : 'Mute', 'micro-command', () => this.updateParticipantPermissions(userId, { canChat: perms.canChat === false })));
+                actions.appendChild(this.button(perms.canControlPlayback === false ? 'Allow Control' : 'No Control', 'micro-command', () => this.updateParticipantPermissions(userId, { canControlPlayback: perms.canControlPlayback === false })));
+                actions.appendChild(this.button(perms.canAddToQueue === false ? 'Allow Queue' : 'No Queue', 'micro-command', () => this.updateParticipantPermissions(userId, { canAddToQueue: perms.canAddToQueue === false })));
+                if (this.isOwner()) actions.appendChild(this.button(perms.canManageParticipants === true ? 'Revoke Mod' : 'Make Mod', 'micro-command', () => this.updateParticipantPermissions(userId, { canManageParticipants: perms.canManageParticipants !== true })));
+                actions.appendChild(this.button('Kick', 'micro-command', () => this.participantAction(userId, 'Kick')));
+                actions.appendChild(this.button('Ban', 'micro-command', () => this.participantAction(userId, 'Ban')));
+                item.appendChild(actions);
+            }
+
             list.appendChild(item);
         });
+    }
+
+    renderPendingParticipants() {
+        const dataStr = JSON.stringify({
+            pending: this.currentRoom.pendingParticipantIds,
+            banned: this.currentRoom.bannedParticipantIds,
+            canManageParticipants: this.canManageParticipants()
+        });
+        if (dataStr === this._lastPendingData) return;
+        this._lastPendingData = dataStr;
+
+        const list = document.getElementById('pending-participant-list');
+        if (!list) return;
+        this.clear(list);
+        if (!this.canManageParticipants()) return;
+
+        (this.currentRoom.pendingParticipantIds || []).forEach(userId => {
+            const item = document.createElement('div');
+            item.className = 'participant-item pending';
+            item.appendChild(this.textEl('span', userId, 'user-name'));
+            item.appendChild(this.textEl('span', 'Pending', 'role-badge'));
+            const actions = document.createElement('div');
+            actions.className = 'participant-actions';
+            actions.appendChild(this.button('Approve', 'micro-command active', () => this.participantAction(userId, 'Approve')));
+            actions.appendChild(this.button('Reject', 'micro-command', () => this.participantAction(userId, 'Reject')));
+            actions.appendChild(this.button('Ban', 'micro-command', () => this.participantAction(userId, 'Ban')));
+            item.appendChild(actions);
+            list.appendChild(item);
+        });
+
+        (this.currentRoom.bannedParticipantIds || []).forEach(userId => {
+            const item = document.createElement('div');
+            item.className = 'participant-item banned';
+            item.appendChild(this.textEl('span', userId, 'user-name'));
+            item.appendChild(this.textEl('span', 'Banned', 'role-badge'));
+            const actions = document.createElement('div');
+            actions.className = 'participant-actions';
+            actions.appendChild(this.button('Unban', 'micro-command', () => this.participantAction(userId, 'Unban')));
+            item.appendChild(actions);
+            list.appendChild(item);
+        });
+    }
+
+    async participantAction(userId, action) {
+        if (!this.currentRoom || !userId) return;
+        try {
+            const resp = await this.request(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Participants/${encodeURIComponent(userId)}/${action}`, { method: 'POST' });
+            if (!resp.ok) throw new Error(`${action} failed`);
+            await this.refreshRoom();
+        } catch (e) {
+            console.error(`${action} Error:`, e);
+            this.showToast('Participant action failed.', 'error');
+        }
+    }
+
+    async updateParticipantPermissions(userId, changes) {
+        if (!this.currentRoom || !userId) return;
+        const current = this.currentRoom.permissions?.[userId] || {};
+        const payload = {
+            canChat: current.canChat !== false,
+            canControlPlayback: current.canControlPlayback !== false,
+            canAddToQueue: current.canAddToQueue !== false,
+            canManageParticipants: current.canManageParticipants === true,
+            ...changes
+        };
+        try {
+            const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Participants/${encodeURIComponent(userId)}/Permissions`, payload);
+            if (!resp.ok) throw new Error('Permissions update failed');
+            await this.refreshRoom();
+        } catch (e) {
+            console.error('Permissions Error:', e);
+            this.showToast('Could not update participant permissions.', 'error');
+        }
     }
 
     renderPolls() {
@@ -1821,6 +1950,12 @@ class JellTogetherApp {
         return this.isOwner() || (this.currentRoom && this.currentRoom.coHostIds.includes(this.currentUser));
     }
 
+    canManageParticipants() {
+        if (!this.currentRoom) return false;
+        if (this.canManage()) return true;
+        return this.currentRoom.permissions?.[this.currentUser]?.canManageParticipants === true;
+    }
+
     isOwner() {
         return this.currentRoom && this.currentRoom.ownerId === this.currentUser;
     }
@@ -1834,7 +1969,8 @@ class JellTogetherApp {
 
     canAddQueue() {
         if (!this.currentRoom) return false;
-        return this.canManage() || this.allowParticipantQueueAdds;
+        const perms = this.currentRoom.permissions?.[this.currentUser];
+        return this.canManage() || (this.allowParticipantQueueAdds && (!perms || perms.canAddToQueue !== false));
     }
 
     async generateAdvancedInvite() {

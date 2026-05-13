@@ -322,8 +322,17 @@ namespace JellTogether.Plugin.Api
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
-            if (!_roomManager.JoinRoom(roomId, CurrentUserId, code)) return Forbid();
-            return Ok();
+            var result = _roomManager.JoinRoom(roomId, CurrentUserId, code);
+            return result switch
+            {
+                JoinRoomResult.Joined => Ok(new { status = "joined" }),
+                JoinRoomResult.PendingApproval => Accepted(new { status = "pending" }),
+                JoinRoomResult.Locked => StatusCode(423, "Room joining is locked."),
+                JoinRoomResult.Banned => Forbid(),
+                JoinRoomResult.Forbidden => Forbid(),
+                JoinRoomResult.NotFound => NotFound(),
+                _ => Forbid()
+            };
         }
 
         [HttpPost("Rooms/{roomId}/Queue")]
@@ -525,6 +534,28 @@ namespace JellTogether.Plugin.Api
             return Ok();
         }
 
+        [HttpPost("Rooms/{roomId}/ToggleJoinApproval")]
+        public ActionResult ToggleJoinApproval(string roomId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManageParticipants(room)) return Forbid();
+
+            _roomManager.ToggleJoinApproval(roomId);
+            return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/ToggleJoinLock")]
+        public ActionResult ToggleJoinLock(string roomId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManageParticipants(room)) return Forbid();
+
+            _roomManager.ToggleJoinLock(roomId);
+            return Ok();
+        }
+
         [HttpPost("Rooms/{roomId}/ToggleQueueVoting")]
         public ActionResult ToggleQueueVoting(string roomId)
         {
@@ -583,8 +614,53 @@ namespace JellTogether.Plugin.Api
                 return Forbid();
             }
 
-            _roomManager.SetUserPermissions(roomId, userId, permissions.CanChat, permissions.CanControlPlayback);
+            _roomManager.SetUserPermissions(roomId, userId, permissions.CanChat, permissions.CanControlPlayback, permissions.CanAddToQueue, permissions.CanManageParticipants);
             return Ok();
+        }
+
+        [HttpPost("Rooms/{roomId}/Participants/{userId}/Approve")]
+        public ActionResult ApproveJoin(string roomId, string userId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManageParticipants(room)) return Forbid();
+            return _roomManager.ApproveJoin(roomId, userId) ? Ok() : BadRequest("Unable to approve participant.");
+        }
+
+        [HttpPost("Rooms/{roomId}/Participants/{userId}/Reject")]
+        public ActionResult RejectJoin(string roomId, string userId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManageParticipants(room)) return Forbid();
+            return _roomManager.RejectJoin(roomId, userId) ? Ok() : BadRequest("Unable to reject participant.");
+        }
+
+        [HttpPost("Rooms/{roomId}/Participants/{userId}/Kick")]
+        public ActionResult KickParticipant(string roomId, string userId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManageParticipants(room)) return Forbid();
+            return _roomManager.KickParticipant(roomId, userId) ? Ok() : BadRequest("Unable to remove participant.");
+        }
+
+        [HttpPost("Rooms/{roomId}/Participants/{userId}/Ban")]
+        public ActionResult BanParticipant(string roomId, string userId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManageParticipants(room)) return Forbid();
+            return _roomManager.BanParticipant(roomId, userId) ? Ok() : BadRequest("Unable to ban participant.");
+        }
+
+        [HttpPost("Rooms/{roomId}/Participants/{userId}/Unban")]
+        public ActionResult UnbanParticipant(string roomId, string userId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManageParticipants(room)) return Forbid();
+            return _roomManager.UnbanParticipant(roomId, userId) ? Ok() : BadRequest("Unable to unban participant.");
         }
 
         [HttpPost("Rooms/{roomId}/Participants/{userId}/Promote")]
@@ -793,6 +869,13 @@ namespace JellTogether.Plugin.Api
         private bool CanManage(JellTogetherRoom room)
         {
             return room.OwnerId == CurrentUserId || room.CoHostIds.Contains(CurrentUserId);
+        }
+
+        private bool CanManageParticipants(JellTogetherRoom room)
+        {
+            if (CanManage(room)) return true;
+            return room.Permissions.TryGetValue(CurrentUserId, out var permissions) &&
+                permissions.CanManageParticipants;
         }
 
         private JellTogetherRoom RoomForUser(JellTogetherRoom room)

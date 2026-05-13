@@ -9,12 +9,12 @@
     "category": "Social",
     "versions": [
       {
-        "version": "1.2.6.0",
-        "changelog": "Add host-controlled Start Watch Party playback for queued Jellyfin media.",
+        "version": "1.2.7.0",
+        "changelog": "Add room moderation controls, join approval, join locking, bans, and delegated participant management.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.6.0/jelltogether_1.2.6.0.zip",
-        "checksum": "54133818527014C52B737FE3166EE6E5",
-        "timestamp": "2026-05-13T17:20:27Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.7.0/jelltogether_1.2.7.0.zip",
+        "checksum": "D21B3BAF3B0368EF0152183A8647D1AA",
+        "timestamp": "2026-05-13T17:34:23Z"
       }
     ]
   }

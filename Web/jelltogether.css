@@ -917,13 +917,28 @@ h1 {
 
 .participant-actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 8px;
-    opacity: 0;
-    transition: opacity 0.2s;
 }
 
-.participant-item:hover .participant-actions {
-    opacity: 1;
+.participant-permission-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.participant-permission-badges span {
+    padding: 3px 7px;
+    border-radius: 999px;
+    color: var(--text-dim);
+    background: rgba(255, 255, 255, 0.07);
+    font-size: 0.66rem;
+    font-weight: 800;
+}
+
+.participant-item.pending,
+.participant-item.banned {
+    border-color: rgba(255, 77, 166, 0.22);
 }
 
 .chat-container {

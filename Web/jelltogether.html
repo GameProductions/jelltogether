@@ -166,6 +166,8 @@
                             <button id="btn-toggle-participant-invites" class="state-command" onclick="app.toggleParticipantInvites()" title="Toggle invite privileges">Invites</button>
                             <button id="btn-toggle-privacy" class="state-command" onclick="app.togglePrivacy()" title="Toggle room privacy">Visibility</button>
                             <button id="btn-toggle-control" class="state-command" onclick="app.toggleHostControl()" title="Toggle playback control">Control</button>
+                            <button id="btn-toggle-join-approval" class="state-command" onclick="app.toggleJoinApproval()" title="Require host approval to join">Approval</button>
+                            <button id="btn-toggle-join-lock" class="state-command" onclick="app.toggleJoinLock()" title="Lock joining">Lock</button>
                         </div>
                     </div>
 
@@ -180,6 +182,7 @@
                         </div>
                     </div>
 
+                    <div id="pending-participant-list" class="participant-list"></div>
                     <div id="participant-list" class="participant-list"></div>
                 </div>
             </div>
