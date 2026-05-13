@@ -169,8 +169,7 @@ body button {
     border-radius: 8px;
     background:
         linear-gradient(115deg, rgba(9, 15, 36, 0.98), rgba(17, 24, 58, 0.88) 45%, rgba(18, 45, 55, 0.7)),
-        url("configurationpage?name=banner.png"),
-        url("../banner.png");
+        url("configurationpage?name=banner.png");
     background-size: cover;
     background-position: center;
     box-shadow: var(--shadow-soft);

@@ -95,14 +95,70 @@ class JellTogetherApp {
     }
 
     async fetchJson(url, options = {}) {
-        const resp = await fetch(url, options);
+        const resp = await this.request(url, options);
         if (!resp.ok) throw new Error(`${options.method || 'GET'} ${url} failed with ${resp.status}`);
         if (resp.status === 204) return null;
         return resp.json();
     }
 
-    jsonPost(url, value) {
+    request(url, options = {}) {
+        const headers = new Headers(options.headers || {});
+        const token = this.getAccessToken();
+        if (token && !headers.has('X-Emby-Token')) {
+            headers.set('X-Emby-Token', token);
+        }
         return fetch(url, {
+            ...options,
+            headers,
+            credentials: 'same-origin'
+        });
+    }
+
+    getAccessToken() {
+        const apiClient = window.ApiClient;
+        const candidates = [
+            typeof apiClient?.accessToken === 'function' ? apiClient.accessToken() : apiClient?.accessToken,
+            typeof apiClient?.getAccessToken === 'function' ? apiClient.getAccessToken() : null,
+            apiClient?._serverInfo?.AccessToken,
+            apiClient?._serverInfo?.AccessToken || apiClient?.serverInfo?.AccessToken
+        ];
+
+        for (const candidate of candidates) {
+            if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+        }
+
+        try {
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                const value = key ? localStorage.getItem(key) : null;
+                if (!value || !value.includes('AccessToken')) continue;
+
+                const parsed = JSON.parse(value);
+                const token = this.findAccessToken(parsed);
+                if (token) return token;
+            }
+        } catch (e) {
+            console.error("Access token lookup failed:", e);
+        }
+
+        return "";
+    }
+
+    findAccessToken(value) {
+        if (!value || typeof value !== 'object') return "";
+        if (typeof value.AccessToken === 'string' && value.AccessToken.trim()) return value.AccessToken.trim();
+        if (typeof value.accessToken === 'string' && value.accessToken.trim()) return value.accessToken.trim();
+
+        for (const child of Object.values(value)) {
+            const token = this.findAccessToken(child);
+            if (token) return token;
+        }
+
+        return "";
+    }
+
+    jsonPost(url, value) {
+        return this.request(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(value)
@@ -193,7 +249,7 @@ class JellTogetherApp {
     async joinRoom(roomId, inviteCode = null) {
         try {
             const url = `/jelltogether/Rooms/${encodeURIComponent(roomId)}/Join${inviteCode ? `?code=${encodeURIComponent(inviteCode)}` : ''}`;
-            const joinResp = await fetch(url, { method: 'POST' });
+            const joinResp = await this.request(url, { method: 'POST' });
             if (!joinResp.ok) throw new Error("Join failed");
 
             this.currentRoom = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(roomId)}`);
@@ -214,7 +270,7 @@ class JellTogetherApp {
         if (!code) return;
 
         try {
-            const resp = await fetch(`/jelltogether/Rooms/ByCode/${encodeURIComponent(code)}`);
+            const resp = await this.request(`/jelltogether/Rooms/ByCode/${encodeURIComponent(code)}`);
             if (resp.status === 404) return alert("Invalid code.");
             if (!resp.ok) throw new Error("Code lookup failed");
             const room = await resp.json();
@@ -228,7 +284,7 @@ class JellTogetherApp {
     async leaveRoom() {
         if (!this.currentRoom) return;
         try {
-            await fetch(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Leave`, { method: 'POST' });
+            await this.request(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Leave`, { method: 'POST' });
             this.currentRoom = null;
             if (this.isVR) this.toggleImmersiveMode();
             this.showView('lobby');
@@ -267,7 +323,7 @@ class JellTogetherApp {
     async postRoomAction(action) {
         if (!this.currentRoom) return;
         try {
-            const resp = await fetch(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/${action}`, { method: 'POST' });
+            const resp = await this.request(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/${action}`, { method: 'POST' });
             if (!resp.ok) throw new Error(`${action} failed`);
             await this.refreshRoom();
         } catch (e) {
@@ -539,7 +595,7 @@ class JellTogetherApp {
     async pollRoom() {
         if (!this.isPolling || !this.currentRoom) return;
         try {
-            const resp = await fetch(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Updates?since=${encodeURIComponent(this.lastUpdate)}`);
+            const resp = await this.request(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Updates?since=${encodeURIComponent(this.lastUpdate)}`);
             if (resp.status === 200) {
                 this.currentRoom = await resp.json();
                 this.lastUpdate = this.currentRoom.lastUpdated;
@@ -763,7 +819,7 @@ class JellTogetherApp {
         const publicCompanionUrl = document.getElementById('public-companion-url')?.value?.trim() || "";
 
         try {
-            const resp = await fetch('/jelltogether/Settings', {
+            const resp = await this.request('/jelltogether/Settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ publicJellyfinUrl, publicCompanionUrl })
