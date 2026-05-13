@@ -96,8 +96,10 @@
 
             <div id="public-access-settings" class="admin-group" style="display: none;">
                 <div class="section-label">Public Access</div>
+                <label class="field-label" for="public-jellyfin-url">Public Jellyfin URL</label>
                 <input type="url" id="public-jellyfin-url" placeholder="Public Jellyfin URL" class="chat-input">
                 <input type="hidden" id="public-companion-url">
+                <div class="field-label">Companion URL</div>
                 <button type="button" id="public-companion-pill" class="copy-pill" onclick="app.copyCompanionLink()">Set a public Jellyfin URL</button>
                 <div class="split-actions">
                     <button class="primary-command" onclick="app.savePublicAccessSettings()">Save</button>
@@ -172,13 +174,14 @@
                     <div class="panel-title-row">
                         <div class="section-label">Participants</div>
                         <div id="participant-controls" class="icon-row">
-                            <button id="btn-toggle-participant-invites" class="action-btn" onclick="app.toggleParticipantInvites()" title="Toggle Invite Privileges">🤝</button>
-                            <button id="btn-toggle-privacy" class="action-btn" onclick="app.togglePrivacy()" title="Toggle Privacy">👁️</button>
-                            <button id="btn-toggle-control" class="action-btn" onclick="app.toggleHostControl()" title="Toggle Control">🔓</button>
+                            <button id="btn-toggle-participant-invites" class="state-command" onclick="app.toggleParticipantInvites()" title="Toggle invite privileges">Invites</button>
+                            <button id="btn-toggle-privacy" class="state-command" onclick="app.togglePrivacy()" title="Toggle room privacy">Visibility</button>
+                            <button id="btn-toggle-control" class="state-command" onclick="app.toggleHostControl()" title="Toggle playback control">Control</button>
                         </div>
                     </div>
 
                     <div id="invite-code-container">
+                        <div class="field-label">Invite Code</div>
                         <div class="invite-code-row">
                             <span id="invite-code-text">CODE</span>
                             <div class="inline-actions">

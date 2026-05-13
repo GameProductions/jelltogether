@@ -1,5 +1,9 @@
 # JellTogether Changelog
 
+## [2026-05-13] - People tab and access label polish
+- Improved People tab participant action buttons so room state controls have enough space and clearer visual states.
+- Added explicit labels for the public Jellyfin URL, generated companion URL, and invite code sections.
+
 ## [2026-05-13] - Inline room editing and tabbed controls
 - Replaced the rename button with inline host-editable room names.
 - Reworked the room sidebar into focused Chat, Room, People, and Polls tabs.

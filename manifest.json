@@ -9,12 +9,12 @@
     "category": "Social",
     "versions": [
       {
-        "version": "1.1.10.0",
-        "changelog": "Refine room controls with inline room renaming, tabbed sidebar sections, and simpler delete confirmation.",
+        "version": "1.1.11.0",
+        "changelog": "Polish People tab controls and clearly label public access, companion link, and invite code fields.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.1.10.0/jelltogether_1.1.10.0.zip",
-        "checksum": "ED3820E3FDBE74F5DF649B7E90720A69",
-        "timestamp": "2026-05-13T06:21:42Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.1.11.0/jelltogether_1.1.11.0.zip",
+        "checksum": "82121528FACAFB9682AC57B2EE6BAF90",
+        "timestamp": "2026-05-13T11:34:20Z"
       }
     ],
     "imageUrl": "https://raw.githubusercontent.com/GameProductions/jelltogether/main/banner.png"

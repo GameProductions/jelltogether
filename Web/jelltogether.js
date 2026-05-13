@@ -605,18 +605,24 @@ class JellTogetherApp {
         if (inviteToggleBtn) {
             inviteToggleBtn.style.display = amOwner ? 'inline-flex' : 'none';
             inviteToggleBtn.textContent = this.currentRoom.allowParticipantInvites ? 'Invites on' : 'Invites off';
+            inviteToggleBtn.classList.toggle('active', this.currentRoom.allowParticipantInvites);
+            inviteToggleBtn.classList.toggle('warning', !this.currentRoom.allowParticipantInvites);
         }
 
         const privacyBtn = document.getElementById('btn-toggle-privacy');
         if (privacyBtn) {
             privacyBtn.style.display = amOwner ? 'inline-flex' : 'none';
             privacyBtn.textContent = this.currentRoom.isPrivate ? 'Private' : 'Public';
+            privacyBtn.classList.toggle('active', !this.currentRoom.isPrivate);
+            privacyBtn.classList.toggle('warning', this.currentRoom.isPrivate);
         }
 
         const controlBtn = document.getElementById('btn-toggle-control');
         if (controlBtn) {
             controlBtn.style.display = amOwner ? 'inline-flex' : 'none';
             controlBtn.textContent = this.currentRoom.isHostOnlyControl ? 'Host control' : 'Open control';
+            controlBtn.classList.toggle('active', !this.currentRoom.isHostOnlyControl);
+            controlBtn.classList.toggle('warning', this.currentRoom.isHostOnlyControl);
         }
 
         document.getElementById('participant-count').textContent = `${this.currentRoom.participants.length} participants`;
