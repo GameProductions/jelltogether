@@ -1,5 +1,34 @@
 # JellTogether Changelog
 
+## [2026-05-15] - Queue and media details
+- Added a companion sign-out/sign-in action.
+- Added paginated Up Next queue controls after 10 items.
+- Added host and co-host queue clearing.
+- Added media detail previews for search results and queued Jellyfin items.
+- Added selectable collection, season, and episode queue additions.
+
+## [2026-05-15] - Companion sign-in
+- Added companion-side Jellyfin account sign-in and local token reuse for public companion access.
+- Resume pending invite-code joins after successful companion sign-in.
+
+## [2026-05-15] - Permission and settings fixes
+- Made playback-control permissions apply to Start Watch Party.
+- Kept queue reordering scoped to hosts and co-hosts so API permissions match the UI.
+- Added queue-add permissions to generated invite rules.
+- Added standalone companion sign-in guidance when Jellyfin authentication is missing.
+- Added current-user fallbacks for standalone media search and library loading.
+- Added clipboard failure handling to the global settings companion URL pill.
+- Made queue-add denials return errors instead of appearing successful.
+- Added the companion token fallback to global settings and removed stale room guidance.
+
+## [2026-05-15] - Android TV playback targeting
+- Added a global option for Android TV playback targeting.
+- Mark Android TV sessions in the Start Watch Party target picker and allow remote-start targeting when the client advertises remote control.
+
+## [2026-05-15] - Global settings card polish
+- Changed system default options into card-style controls.
+- Added thumbnail previews to library access cards when Jellyfin has a library image.
+
 ## [2026-05-13] - Room moderation controls
 - Added join approval, join locking, pending join requests, kick, ban, unban, and reject controls.
 - Added per-participant permissions for chat, playback control, queue adds, and delegated participant management.

@@ -8,6 +8,7 @@ class JellTogetherApp {
         this.allowParticipantQueueAdds = true;
         this.currentRoom = null;
         this.currentUser = "Unknown";
+        this.currentJellyfinMediaUserId = "";
         this.lastUpdate = new Date(0).toISOString();
         this.isPolling = false;
         this.pollTimer = null;
@@ -17,6 +18,11 @@ class JellTogetherApp {
         this.t = JELL_TOGETHER_I18N[this.lang];
         this.activeSidebarTab = 'chat';
         this.replyTarget = null;
+        this.authPromptShown = false;
+        this.pendingInviteCode = "";
+        this.queuePage = 1;
+        this.queuePageSize = 10;
+        this.mediaDetailsCache = new Map();
 
         this._lastCinemaData = null;
         this._lastParticipantData = null;
@@ -30,6 +36,7 @@ class JellTogetherApp {
 
     async init() {
         const inviteCode = this.getInviteCodeFromUrl();
+        this.pendingInviteCode = inviteCode || "";
         await this.loadSettings();
         await this.loadCurrentUser();
         await this.loadRooms();
@@ -37,7 +44,7 @@ class JellTogetherApp {
         this.checkVR();
         this.createStars();
         this.setupEventHandlers();
-        if (inviteCode) this.joinByCode(inviteCode);
+        if (inviteCode && this.currentUser !== "Unknown") this.joinByCode(inviteCode);
     }
 
     getInviteCodeFromUrl() {
@@ -139,6 +146,7 @@ class JellTogetherApp {
         try {
             const user = await this.fetchJson('/jelltogether/CurrentUser');
             this.currentUser = user.id || user.name || "Unknown";
+            this.currentJellyfinMediaUserId = user.mediaUserId || user.mediaUserID || "";
         } catch (e) {
             console.error("User Load Error:", e);
             this.showToast("Sign in to Jellyfin to use the companion.", 'error');
@@ -146,6 +154,7 @@ class JellTogetherApp {
 
         const display = document.getElementById('display-name');
         if (display) display.textContent = this.currentUser;
+        this.updateAuthAction();
     }
 
     async fetchJson(url, options = {}) {
@@ -155,22 +164,25 @@ class JellTogetherApp {
         return resp.json();
     }
 
-    request(url, options = {}) {
+    async request(url, options = {}) {
         const headers = new Headers(options.headers || {});
         const token = this.getAccessToken();
         if (token && !headers.has('X-Emby-Token')) {
             headers.set('X-Emby-Token', token);
         }
-        return fetch(url, {
+        const response = await fetch(url, {
             ...options,
             headers,
             credentials: 'same-origin'
         });
+        if (response.status === 401) this.showSignInPrompt();
+        return response;
     }
 
     getAccessToken() {
         const apiClient = window.ApiClient;
         const candidates = [
+            this.storedAuth()?.AccessToken,
             typeof apiClient?.accessToken === 'function' ? apiClient.accessToken() : apiClient?.accessToken,
             typeof apiClient?.getAccessToken === 'function' ? apiClient.getAccessToken() : null,
             apiClient?._serverInfo?.AccessToken,
@@ -198,6 +210,26 @@ class JellTogetherApp {
         return "";
     }
 
+    storedAuth() {
+        try {
+            const raw = localStorage.getItem('jelltogether-auth');
+            return raw ? JSON.parse(raw) : null;
+        } catch (e) {
+            console.error("Stored auth lookup failed:", e);
+            return null;
+        }
+    }
+
+    saveAuth(auth) {
+        if (!auth?.AccessToken) return;
+        localStorage.setItem('jelltogether-auth', JSON.stringify({
+            AccessToken: auth.AccessToken,
+            User: auth.User || null,
+            ServerId: auth.ServerId || '',
+            savedAt: new Date().toISOString()
+        }));
+    }
+
     findAccessToken(value) {
         if (!value || typeof value !== 'object') return "";
         if (typeof value.AccessToken === 'string' && value.AccessToken.trim()) return value.AccessToken.trim();
@@ -209,6 +241,114 @@ class JellTogetherApp {
         }
 
         return "";
+    }
+
+    showSignInPrompt() {
+        if (this.authPromptShown) return;
+        this.authPromptShown = true;
+        this.showToast("Sign in to Jellyfin to use JellTogether.", 'error');
+        this.showJellyfinSignInModal();
+    }
+
+    showJellyfinSignInModal() {
+        this.showModal('Sign in to Jellyfin', [
+            { id: 'username', type: 'text', label: 'Username', placeholder: 'Jellyfin username' },
+            { id: 'password', type: 'password', label: 'Password', placeholder: 'Jellyfin password' }
+        ], [
+            { label: 'Sign In', primary: true, onClick: (values) => this.signInToJellyfin(values) }
+        ]);
+    }
+
+    async signInToJellyfin({ username, password }) {
+        const name = (username || '').trim();
+        if (!name || !password) {
+            this.showToast("Enter your Jellyfin username and password.", 'error');
+            this.authPromptShown = false;
+            this.showJellyfinSignInModal();
+            return;
+        }
+
+        try {
+            const response = await fetch('/Users/AuthenticateByName', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': this.jellyfinAuthorizationHeader()
+                },
+                body: JSON.stringify({ Username: name, Pw: password })
+            });
+
+            if (!response.ok) throw new Error(`Sign in failed with ${response.status}`);
+            const auth = await response.json();
+            this.saveAuth(auth);
+            this.authPromptShown = false;
+            this.showToast("Signed in to Jellyfin.", 'success');
+            await this.reloadAfterSignIn();
+        } catch (e) {
+            console.error("Jellyfin Sign In Error:", e);
+            this.showToast("Sign in failed. Check your Jellyfin credentials.", 'error');
+            this.authPromptShown = false;
+            this.showJellyfinSignInModal();
+        }
+    }
+
+    jellyfinAuthorizationHeader() {
+        const deviceId = this.deviceId();
+        return `MediaBrowser Client="JellTogether Companion", Device="Browser", DeviceId="${deviceId}", Version="1.2.12.0"`;
+    }
+
+    deviceId() {
+        const key = 'jelltogether-device-id';
+        let id = localStorage.getItem(key);
+        if (!id) {
+            id = (crypto?.randomUUID?.() || `jelltogether-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+            localStorage.setItem(key, id);
+        }
+        return id;
+    }
+
+    async reloadAfterSignIn() {
+        await this.loadSettings();
+        await this.loadCurrentUser();
+        await this.loadRooms();
+        if (this.pendingInviteCode) await this.joinByCode(this.pendingInviteCode);
+    }
+
+    async signOut() {
+        localStorage.removeItem('jelltogether-auth');
+        this.authPromptShown = false;
+        this.currentUser = "Unknown";
+        this.currentJellyfinMediaUserId = "";
+        this.currentRoom = null;
+        this.pendingInviteCode = this.getInviteCodeFromUrl() || "";
+        this.queuePage = 1;
+        this.resetRenderCaches();
+        this.hideModal();
+
+        const display = document.getElementById('display-name');
+        if (display) display.textContent = 'Signed out';
+        this.updateAuthAction();
+        const lobby = document.getElementById('lobby-view');
+        const party = document.getElementById('party-view');
+        if (lobby) lobby.style.display = 'block';
+        if (party) party.style.display = 'none';
+        this.showToast("Signed out of the companion.", 'success');
+    }
+
+    handleAuthAction() {
+        if (!this.currentUser || this.currentUser === "Unknown") {
+            this.showJellyfinSignInModal();
+            return;
+        }
+
+        this.signOut();
+    }
+
+    updateAuthAction() {
+        const button = document.getElementById('btn-auth-action');
+        if (!button) return;
+        button.textContent = (!this.currentUser || this.currentUser === "Unknown") ? 'Sign In' : 'Sign Out';
     }
 
     jsonPost(url, value) {
@@ -264,7 +404,13 @@ class JellTogetherApp {
             upvotes: this.prop(item, 'upvotes', null, []),
             mediaType: this.prop(item, 'mediaType', null, ''),
             overview: this.prop(item, 'overview', null, ''),
-            addedBy: this.prop(item, 'addedBy', null, 'Unknown')
+            addedBy: this.prop(item, 'addedBy', null, 'Unknown'),
+            year: this.prop(item, 'year', null, ''),
+            seriesId: this.prop(item, 'seriesId', null, ''),
+            seriesName: this.prop(item, 'seriesName', null, ''),
+            seasonId: this.prop(item, 'seasonId', null, ''),
+            seasonName: this.prop(item, 'seasonName', null, ''),
+            parentId: this.prop(item, 'parentId', null, '')
         };
     }
 
@@ -734,6 +880,11 @@ class JellTogetherApp {
         document.getElementById('btn-send').disabled = !canChat;
         const addQueueBtn = document.getElementById('btn-add-queue');
         if (addQueueBtn) addQueueBtn.disabled = !this.canAddQueue();
+        const clearQueueBtn = document.getElementById('btn-clear-queue');
+        if (clearQueueBtn) {
+            clearQueueBtn.style.display = this.canManage() && this.currentRoom.queue.length ? 'inline-flex' : 'none';
+            clearQueueBtn.disabled = !this.currentRoom.queue.length;
+        }
 
         this.renderPlayerState();
         this.renderParticipants();
@@ -886,42 +1037,210 @@ class JellTogetherApp {
     }
 
     async showQueueAddOptions(item) {
-        const modal = document.getElementById('app-modal');
-        if (!modal || !item?.mediaId) {
-            await this.addMediaToQueue(item);
-            return;
+        await this.showMediaDetails(item, { backToSearch: true });
+    }
+
+    async showMediaDetails(item, options = {}) {
+        if (!item?.mediaId) return;
+        this.hideModal();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card media-detail-modal';
+        modal.appendChild(this.textEl('div', 'Loading media details...', 'loading'));
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        try {
+            const details = await this.fetchMediaDetails(item);
+            this.renderMediaDetails(modal, details, options);
+        } catch (e) {
+            console.error('Media Details Error:', e);
+            this.renderMediaDetails(modal, item, options);
+            this.showToast("Some media details could not be loaded.", 'error');
+        }
+    }
+
+    async fetchMediaDetails(item) {
+        const key = item.mediaId;
+        if (this.mediaDetailsCache.has(key)) return { ...item, ...this.mediaDetailsCache.get(key) };
+
+        const userId = this.currentJellyfinUserId();
+        if (!userId || !item.mediaId) return item;
+        const params = new URLSearchParams({
+            Fields: 'Overview,Genres,People,Studios,Tags,ProviderIds,RunTimeTicks,CommunityRating,OfficialRating,PremiereDate,ProductionYear,ParentId,SeriesId,SeasonId,ImageTags'
+        });
+        const data = await this.fetchJson(`/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(item.mediaId)}?${params}`);
+        const details = this.normalizeMediaDetails(data, item);
+        this.mediaDetailsCache.set(key, details);
+        return details;
+    }
+
+    normalizeMediaDetails(data, fallback = {}) {
+        const type = data.Type || data.type || fallback.mediaType || '';
+        const people = data.People || data.people || [];
+        const cast = people
+            .filter(person => String(person.Type || person.type || '').toLowerCase() === 'actor')
+            .slice(0, 8)
+            .map(person => [person.Name || person.name, person.Role || person.role].filter(Boolean).join(' as '))
+            .filter(Boolean);
+
+        return {
+            ...fallback,
+            title: this.mediaTitle(data) || fallback.title || 'Untitled item',
+            mediaId: data.Id || data.id || fallback.mediaId || '',
+            mediaType: type,
+            overview: data.Overview || data.overview || fallback.overview || '',
+            year: data.ProductionYear || data.productionYear || fallback.year || '',
+            runtimeTicks: data.RunTimeTicks || data.runTimeTicks || 0,
+            communityRating: data.CommunityRating || data.communityRating || '',
+            officialRating: data.OfficialRating || data.officialRating || '',
+            genres: data.Genres || data.genres || [],
+            cast,
+            seriesId: data.SeriesId || data.seriesId || fallback.seriesId || '',
+            seriesName: data.SeriesName || data.seriesName || fallback.seriesName || '',
+            seasonId: data.SeasonId || data.seasonId || fallback.seasonId || '',
+            seasonName: data.SeasonName || data.seasonName || fallback.seasonName || '',
+            parentId: data.ParentId || data.parentId || fallback.parentId || ''
+        };
+    }
+
+    renderMediaDetails(modal, item, options = {}) {
+        this.clear(modal);
+        modal.className = 'app-modal glass-card media-detail-modal';
+
+        const header = document.createElement('div');
+        header.className = 'media-detail-header';
+        const poster = document.createElement('div');
+        poster.className = 'media-detail-poster';
+        const img = document.createElement('img');
+        img.alt = '';
+        img.src = this.posterUrl(item.mediaId, 360, 240);
+        img.onerror = () => poster.classList.add('is-empty');
+        poster.appendChild(img);
+        header.appendChild(poster);
+
+        const copy = document.createElement('div');
+        copy.className = 'media-detail-copy';
+        copy.appendChild(this.textEl('h3', item.title || 'Untitled item'));
+        const meta = [
+            item.mediaType,
+            item.year,
+            this.formatRuntime(item.runtimeTicks),
+            item.officialRating,
+            item.communityRating ? `${Number(item.communityRating).toFixed(1)} stars` : ''
+        ].filter(Boolean);
+        copy.appendChild(this.textEl('p', meta.join(' • ') || 'Jellyfin item', 'modal-subtitle'));
+        if (item.genres?.length) copy.appendChild(this.textEl('p', item.genres.slice(0, 5).join(' • '), 'media-detail-meta'));
+        header.appendChild(copy);
+        modal.appendChild(header);
+
+        modal.appendChild(this.textEl('p', item.overview || 'No synopsis is available for this item.', 'media-detail-overview'));
+        if (item.cast?.length) {
+            modal.appendChild(this.textEl('h4', 'Cast'));
+            modal.appendChild(this.textEl('p', item.cast.join(' • '), 'media-detail-meta'));
         }
 
-        this.clear(modal);
-        modal.className = 'app-modal glass-card queue-search-modal';
-        modal.appendChild(this.textEl('h3', 'Add to Queue'));
-        modal.appendChild(this.textEl('p', item.title, 'modal-subtitle'));
-
-        const options = document.createElement('div');
-        options.className = 'queue-add-options';
-        options.appendChild(this.button('Add this item', 'primary-command', () => this.addMediaToQueue(item)));
-        options.appendChild(this.textEl('div', 'Looking for seasons, series, and collections...', 'loading'));
-        modal.appendChild(options);
+        const optionsWrap = document.createElement('div');
+        optionsWrap.className = 'queue-add-options';
+        if (this.currentRoom && this.canAddQueue()) {
+            if (this.isDirectQueueItem(item)) {
+                optionsWrap.appendChild(this.button('Add This Item', 'primary-command', () => this.addMediaToQueue(item)));
+            } else {
+                optionsWrap.appendChild(this.textEl('div', 'Choose the playable items below to add this title to the queue.', 'media-detail-note'));
+            }
+            optionsWrap.appendChild(this.textEl('div', 'Looking for seasons, episodes, and collections...', 'loading queue-options-loading'));
+        }
+        modal.appendChild(optionsWrap);
 
         const actionRow = document.createElement('div');
         actionRow.className = 'split-actions';
-        actionRow.appendChild(this.button('Back to search', 'secondary-command', () => this.showQueueSearchModal()));
+        if (options.backToSearch) actionRow.appendChild(this.button('Back to Search', 'secondary-command', () => this.showQueueSearchModal()));
         actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
         modal.appendChild(actionRow);
 
-        const groupOptions = await this.queueGroupOptions(item);
-        const loading = options.querySelector('.loading');
-        if (loading) loading.remove();
-
-        if (!groupOptions.length) {
-            options.appendChild(this.textEl('div', 'No larger season, series, or collection was found for this item.', 'loading'));
-            return;
-        }
-
-        groupOptions.forEach(option => {
-            const label = `${option.label} (${option.items.length})`;
-            options.appendChild(this.button(label, 'secondary-command', () => this.addMediaGroupToQueue(option.items, option.successMessage)));
+        if (!this.currentRoom || !this.canAddQueue()) return;
+        this.queueGroupOptions(item).then(groupOptions => {
+            optionsWrap.querySelector('.queue-options-loading')?.remove();
+            if (!groupOptions.length) return;
+            groupOptions.forEach(option => {
+                const row = document.createElement('div');
+                row.className = 'queue-option-row';
+                row.appendChild(this.textEl('span', `${option.label} (${option.items.length})`));
+                row.appendChild(this.button('Choose', 'secondary-command compact', () => this.showQueueGroupPicker(option, item, options)));
+                row.appendChild(this.button('Add All', 'micro-command primary', () => this.addMediaGroupToQueue(option.items, option.successMessage)));
+                optionsWrap.appendChild(row);
+            });
+        }).catch(e => {
+            console.warn('Queue options lookup failed:', e);
+            optionsWrap.querySelector('.queue-options-loading')?.remove();
         });
+    }
+
+    posterUrl(mediaId, height = 420, width = 280) {
+        return mediaId ? `/Items/${encodeURIComponent(mediaId)}/Images/Primary?fillHeight=${height}&fillWidth=${width}&quality=90` : '';
+    }
+
+    formatRuntime(ticks) {
+        const totalMinutes = Math.round(Number(ticks || 0) / 600000000);
+        if (!totalMinutes) return '';
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
+    }
+
+    isDirectQueueItem(item) {
+        const type = String(item?.mediaType || '').toLowerCase();
+        return type === 'movie' || type === 'episode';
+    }
+
+    showQueueGroupPicker(option, sourceItem = null, previousOptions = {}) {
+        this.hideModal();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card queue-picker-modal';
+        modal.appendChild(this.textEl('h3', option.label));
+        modal.appendChild(this.textEl('p', 'Choose the movies, seasons, or episodes to add.', 'modal-subtitle'));
+
+        const list = document.createElement('div');
+        list.className = 'queue-picker-list';
+        option.items.forEach(item => {
+            const label = document.createElement('label');
+            label.className = 'queue-picker-item';
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.checked = true;
+            input.value = item.mediaId;
+            label.appendChild(input);
+            const text = document.createElement('span');
+            text.appendChild(this.textEl('strong', item.title));
+            text.appendChild(this.textEl('em', [item.mediaType, item.year].filter(Boolean).join(' • ') || 'Jellyfin item'));
+            label.appendChild(text);
+            list.appendChild(label);
+        });
+        modal.appendChild(list);
+
+        const actionRow = document.createElement('div');
+        actionRow.className = 'split-actions';
+        actionRow.appendChild(this.button('Add Selected', 'primary-command', () => {
+            const selected = [...list.querySelectorAll('input:checked')].map(input => option.items.find(item => item.mediaId === input.value)).filter(Boolean);
+            this.addMediaGroupToQueue(selected, `${selected.length} item${selected.length === 1 ? '' : 's'} added to queue.`);
+        }));
+        if (sourceItem) actionRow.appendChild(this.button('Back', 'secondary-command', () => this.showMediaDetails(sourceItem, previousOptions)));
+        actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
+        modal.appendChild(actionRow);
+
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
     }
 
     async queueGroupOptions(item) {
@@ -942,13 +1261,48 @@ class JellTogetherApp {
             if (item.seriesId) await addOption(`series-${item.seriesId}`, `Add ${item.seriesName || 'series'}`, item.seriesId, 'Episode', 'Series added to queue.');
         } else if (type === 'series') {
             await addOption(`series-${item.mediaId}`, `Add ${item.title}`, item.mediaId, 'Episode', 'Series added to queue.');
+            const seasons = await this.fetchSeasonOptionsForSeries(item.mediaId, item.libraryId);
+            seasons.forEach(season => {
+                if (!options.some(option => option.key === season.key)) options.push(season);
+            });
         } else if (type === 'boxset') {
-            await addOption(`collection-${item.mediaId}`, `Add ${item.title}`, item.mediaId, 'Movie,Episode,Series', 'Collection added to queue.');
+            await addOption(`collection-${item.mediaId}`, `Add ${item.title}`, item.mediaId, 'Movie,Episode', 'Collection added to queue.');
         } else if (type === 'movie') {
             const collections = await this.findCollectionsForItem(item);
             collections.forEach(collection => options.push(collection));
         }
 
+        return options;
+    }
+
+    async fetchSeasonOptionsForSeries(seriesId, libraryId = '') {
+        const userId = this.currentJellyfinUserId();
+        if (!userId || !seriesId) return [];
+        const params = new URLSearchParams({
+            ParentId: seriesId,
+            Recursive: 'false',
+            IncludeItemTypes: 'Season',
+            SortBy: 'IndexNumber,SortName',
+            SortOrder: 'Ascending',
+            Fields: 'Overview,ParentId',
+            Limit: '100'
+        });
+        const data = await this.fetchJson(`/Users/${encodeURIComponent(userId)}/Items?${params}`);
+        const seasons = data.Items || data.items || [];
+        const options = [];
+        for (const season of seasons) {
+            const seasonId = season.Id || season.id || '';
+            const seasonName = season.Name || season.name || 'Season';
+            const items = await this.fetchQueueGroupItems(seasonId, 'Episode', libraryId);
+            if (items.length) {
+                options.push({
+                    key: `season-${seasonId}`,
+                    label: `Choose ${seasonName}`,
+                    items,
+                    successMessage: `${seasonName} added to queue.`
+                });
+            }
+        }
         return options;
     }
 
@@ -961,7 +1315,7 @@ class JellTogetherApp {
             IncludeItemTypes: includeTypes,
             SortBy: 'ParentIndexNumber,IndexNumber,SortName',
             SortOrder: 'Ascending',
-            Fields: 'Overview,ParentId',
+            Fields: 'Overview,ParentId,SeriesId,SeasonId,RunTimeTicks,ProductionYear',
             Limit: '500'
         });
         const data = await this.fetchJson(`/Users/${encodeURIComponent(userId)}/Items?${params}`);
@@ -978,7 +1332,9 @@ class JellTogetherApp {
                 mediaId: item.Id || item.id || '',
                 libraryId,
                 mediaType: type,
-                overview: item.Overview || item.overview || ''
+                overview: item.Overview || item.overview || '',
+                year: item.ProductionYear || item.productionYear || '',
+                parentId: item.ParentId || item.parentId || ''
             }];
         }
 
@@ -987,7 +1343,13 @@ class JellTogetherApp {
             mediaId: item.Id || item.id || '',
             libraryId,
             mediaType: type,
-            overview: item.Overview || item.overview || ''
+            overview: item.Overview || item.overview || '',
+            year: item.ProductionYear || item.productionYear || '',
+            seriesId: item.SeriesId || item.seriesId || '',
+            seriesName: item.SeriesName || item.seriesName || '',
+            seasonId: item.SeasonId || item.seasonId || '',
+            seasonName: item.SeasonName || item.seasonName || '',
+            parentId: item.ParentId || item.parentId || ''
         }];
     }
 
@@ -1009,7 +1371,7 @@ class JellTogetherApp {
             for (const collection of collections) {
                 const collectionId = collection.Id || collection.id || '';
                 if (!collectionId) continue;
-                const members = await this.fetchQueueGroupItems(collectionId, 'Movie,Episode,Series', item.libraryId);
+                const members = await this.fetchQueueGroupItems(collectionId, 'Movie,Episode', item.libraryId);
                 if (members.some(member => member.mediaId === item.mediaId)) {
                     matches.push({
                         key: `collection-${collectionId}`,
@@ -1028,7 +1390,10 @@ class JellTogetherApp {
 
     currentJellyfinUserId() {
         const apiClient = window.ApiClient;
-        return apiClient?._serverInfo?.UserId || apiClient?.serverInfo?.UserId || apiClient?._currentUser?.Id || apiClient?._currentUser?.id || '';
+        const apiUserId = apiClient?._serverInfo?.UserId || apiClient?.serverInfo?.UserId || apiClient?._currentUser?.Id || apiClient?._currentUser?.id || '';
+        if (apiUserId) return apiUserId;
+        if (this.currentJellyfinMediaUserId) return this.currentJellyfinMediaUserId;
+        return this.currentUser && this.currentUser !== 'Unknown' ? this.currentUser : '';
     }
 
     async addMediaToQueue(item) {
@@ -1133,7 +1498,7 @@ class JellTogetherApp {
     }
 
     renderQueue() {
-        const dataStr = JSON.stringify(this.currentRoom.queue);
+        const dataStr = JSON.stringify({ queue: this.currentRoom.queue, page: this.queuePage });
         if (dataStr === this._lastQueueData) return;
         this._lastQueueData = dataStr;
 
@@ -1144,11 +1509,26 @@ class JellTogetherApp {
             return;
         }
 
-        this.currentRoom.queue.forEach(item => {
+        const totalPages = Math.max(1, Math.ceil(this.currentRoom.queue.length / this.queuePageSize));
+        this.queuePage = Math.min(Math.max(this.queuePage, 1), totalPages);
+        const start = (this.queuePage - 1) * this.queuePageSize;
+        const visibleItems = this.currentRoom.queue.slice(start, start + this.queuePageSize);
+
+        visibleItems.forEach((item, index) => {
             const row = document.createElement('div');
             row.className = 'queue-item';
             const content = document.createElement('div');
             content.className = 'queue-item-content';
+            content.role = 'button';
+            content.tabIndex = 0;
+            content.title = 'View media details';
+            content.onclick = () => this.showMediaDetails(item);
+            content.onkeydown = (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    this.showMediaDetails(item);
+                }
+            };
             content.appendChild(this.textEl('span', item.title));
             const meta = [`Added by ${item.addedBy || 'Unknown'}`];
             if (item.mediaType) meta.push(item.mediaType);
@@ -1161,10 +1541,12 @@ class JellTogetherApp {
                 const voteLabel = item.upvotes?.includes(this.currentUser) ? `Voted (${item.upvotes.length})` : `Vote (${item.upvotes?.length || 0})`;
                 actions.appendChild(this.button(voteLabel, item.upvotes?.includes(this.currentUser) ? 'micro-command active' : 'micro-command', () => this.toggleQueueVote(item.id)));
             }
-            if (this.canManage()) {
+            if (this.canControlPlayback()) {
                 if (item.mediaId) {
                     actions.appendChild(this.button('Start', 'micro-command primary', () => this.showStartWatchPartyModal(item)));
                 }
+            }
+            if (this.canManage()) {
                 actions.appendChild(this.button('Up', 'micro-command', () => this.moveQueueItem(item.id, -1)));
                 actions.appendChild(this.button('Down', 'micro-command', () => this.moveQueueItem(item.id, 1)));
             }
@@ -1175,6 +1557,26 @@ class JellTogetherApp {
 
             container.appendChild(row);
         });
+
+        if (totalPages > 1) {
+            const pager = document.createElement('div');
+            pager.className = 'queue-pager';
+            const previous = this.button('Previous', 'micro-command', () => this.setQueuePage(this.queuePage - 1));
+            previous.disabled = this.queuePage <= 1;
+            const next = this.button('Next', 'micro-command', () => this.setQueuePage(this.queuePage + 1));
+            next.disabled = this.queuePage >= totalPages;
+            pager.appendChild(previous);
+            pager.appendChild(this.textEl('span', `Page ${this.queuePage} of ${totalPages}`));
+            pager.appendChild(next);
+            container.appendChild(pager);
+        }
+    }
+
+    setQueuePage(page) {
+        const totalPages = Math.max(1, Math.ceil((this.currentRoom?.queue?.length || 0) / this.queuePageSize));
+        this.queuePage = Math.min(Math.max(page, 1), totalPages);
+        this._lastQueueData = null;
+        this.renderQueue();
     }
 
     renderPlayerState() {
@@ -1186,7 +1588,7 @@ class JellTogetherApp {
     }
 
     async showStartWatchPartyModal(item) {
-        if (!item?.mediaId || !this.currentRoom || !this.canManage()) return;
+        if (!item?.mediaId || !this.currentRoom || !this.canControlPlayback()) return;
         this.hideModal();
 
         const overlay = document.createElement('div');
@@ -1226,9 +1628,9 @@ class JellTogetherApp {
 
     renderPlaybackTargets(container, targets, startButton) {
         this.clear(container);
-        const eligible = targets.filter(target => target.isActive && target.supportsRemoteControl && target.supportsMediaControl);
+        const eligible = targets.filter(target => target.canStartPlayback || (target.isActive && target.supportsRemoteControl && target.supportsMediaControl));
         if (!eligible.length) {
-            container.appendChild(this.textEl('div', 'No active controllable Jellyfin sessions found for people in this room.', 'loading'));
+            container.appendChild(this.textEl('div', 'No active controllable Jellyfin sessions found for people in this room. Open Jellyfin on Android TV or another client, then try again.', 'loading'));
             startButton.disabled = true;
             return;
         }
@@ -1245,8 +1647,13 @@ class JellTogetherApp {
             });
             label.appendChild(input);
             const text = document.createElement('span');
-            text.appendChild(this.textEl('strong', target.userName || target.userId || 'Jellyfin user'));
-            text.appendChild(this.textEl('em', [target.client, target.deviceName].filter(Boolean).join(' • ') || 'Active session'));
+            const title = document.createElement('strong');
+            title.textContent = target.userName || target.userId || 'Jellyfin user';
+            if (target.isAndroidTv) {
+                title.appendChild(this.textEl('span', 'Android TV', 'target-badge'));
+            }
+            text.appendChild(title);
+            text.appendChild(this.textEl('em', [target.client, target.deviceName, target.eligibilityReason].filter(Boolean).join(' • ') || 'Active session'));
             label.appendChild(text);
             container.appendChild(label);
         });
@@ -1308,6 +1715,27 @@ class JellTogetherApp {
         } catch (e) {
             console.error("Queue Remove Error:", e);
             this.showToast("Failed to remove queue item.", 'error');
+        }
+    }
+
+    confirmClearQueue() {
+        if (!this.currentRoom || !this.canManage() || !this.currentRoom.queue.length) return;
+        this.showModal('Clear queue', [], [
+            { label: 'Clear Queue', danger: true, onClick: () => this.clearQueue() }
+        ]);
+    }
+
+    async clearQueue() {
+        if (!this.currentRoom || !this.canManage()) return;
+        try {
+            const resp = await this.request(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Queue`, { method: 'DELETE' });
+            if (!resp.ok) throw new Error("Queue clear failed");
+            this.queuePage = 1;
+            await this.refreshRoom();
+            this.showToast("Queue cleared.", 'success');
+        } catch (e) {
+            console.error("Queue Clear Error:", e);
+            this.showToast("Failed to clear queue.", 'error');
         }
     }
 
@@ -1973,23 +2401,32 @@ class JellTogetherApp {
         return this.canManage() || (this.allowParticipantQueueAdds && (!perms || perms.canAddToQueue !== false));
     }
 
+    canControlPlayback() {
+        if (!this.currentRoom) return false;
+        if (this.canManage()) return true;
+        if (this.currentRoom.isHostOnlyControl) return false;
+        const perms = this.currentRoom.permissions?.[this.currentUser];
+        return !perms || perms.canControlPlayback !== false;
+    }
+
     async generateAdvancedInvite() {
         this.showModal('Invite settings', [
             { id: 'canChat', type: 'checkbox', label: 'Allow chat', checked: true },
             { id: 'canControl', type: 'checkbox', label: 'Allow playback control', checked: true },
+            { id: 'canAddToQueue', type: 'checkbox', label: 'Allow queue adds', checked: true },
             { id: 'hours', type: 'number', label: 'Hours valid, 0 for no expiration', value: '24', min: '0' }
         ], [
             { label: 'Generate', primary: true, onClick: (values) => this.createAdvancedInvite(values) }
         ]);
     }
 
-    async createAdvancedInvite({ canChat, canControl, hours }) {
+    async createAdvancedInvite({ canChat, canControl, canAddToQueue, hours }) {
         const hoursValid = parseInt(hours || "24", 10);
         try {
             const resp = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Invitations`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ canChat, canControl, hoursValid: Number.isNaN(hoursValid) ? 24 : hoursValid, maxUses: 0 })
+                body: JSON.stringify({ canChat, canControl, canAddToQueue, hoursValid: Number.isNaN(hoursValid) ? 24 : hoursValid, maxUses: 0 })
             });
             this.showInviteLink(resp.code);
         } catch (e) {

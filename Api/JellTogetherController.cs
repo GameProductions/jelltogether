@@ -26,6 +26,7 @@ namespace JellTogether.Plugin.Api
     {
         public bool CanChat { get; set; } = true;
         public bool CanControl { get; set; } = true;
+        public bool CanAddToQueue { get; set; } = true;
         public int HoursValid { get; set; } = 24;
         public int MaxUses { get; set; } = 0;
     }
@@ -50,6 +51,7 @@ namespace JellTogether.Plugin.Api
         public bool AllowQueueVotingByDefault { get; set; } = true;
         public bool AllowParticipantQueueAdds { get; set; } = true;
         public bool AllowParticipantInvitesByDefault { get; set; } = true;
+        public bool AllowAndroidTvPlaybackTargets { get; set; } = true;
         public bool PersistRoomHistory { get; set; } = true;
         public int DefaultInviteExpirationHours { get; set; } = 24;
     }
@@ -85,6 +87,9 @@ namespace JellTogether.Plugin.Api
         public bool SupportsRemoteControl { get; set; }
         public bool SupportsMediaControl { get; set; }
         public bool IsCurrentUser { get; set; }
+        public bool IsAndroidTv { get; set; }
+        public bool CanStartPlayback { get; set; }
+        public string EligibilityReason { get; set; } = string.Empty;
     }
 
     public class StartWatchPartyResult
@@ -138,7 +143,13 @@ namespace JellTogether.Plugin.Api
         [HttpGet("CurrentUser")]
         public ActionResult<object> GetCurrentUser()
         {
-            return Ok(new { id = CurrentUserId, name = CurrentUserId });
+            var mediaUserGuid = ControllerUserGuid();
+            return Ok(new
+            {
+                id = CurrentUserId,
+                name = CurrentUserId,
+                mediaUserId = mediaUserGuid == Guid.Empty ? CurrentUserId : mediaUserGuid.ToString("D")
+            });
         }
 
         [HttpGet("Settings")]
@@ -153,6 +164,7 @@ namespace JellTogether.Plugin.Api
                 allowQueueVotingByDefault = config?.AllowQueueVotingByDefault ?? true,
                 allowParticipantQueueAdds = config?.AllowParticipantQueueAdds ?? true,
                 allowParticipantInvitesByDefault = config?.AllowParticipantInvitesByDefault ?? true,
+                allowAndroidTvPlaybackTargets = config?.AllowAndroidTvPlaybackTargets ?? true,
                 persistRoomHistory = config?.PersistRoomHistory ?? true,
                 defaultInviteExpirationHours = config?.DefaultInviteExpirationHours ?? 24,
                 canSavePublicAccessSettings = IsElevatedUser()
@@ -198,6 +210,7 @@ namespace JellTogether.Plugin.Api
                 allowQueueVotingByDefault = config?.AllowQueueVotingByDefault ?? true,
                 allowParticipantQueueAdds = config?.AllowParticipantQueueAdds ?? true,
                 allowParticipantInvitesByDefault = config?.AllowParticipantInvitesByDefault ?? true,
+                allowAndroidTvPlaybackTargets = config?.AllowAndroidTvPlaybackTargets ?? true,
                 persistRoomHistory = config?.PersistRoomHistory ?? true,
                 defaultInviteExpirationHours = config?.DefaultInviteExpirationHours ?? 24
             });
@@ -233,6 +246,7 @@ namespace JellTogether.Plugin.Api
             config.AllowQueueVotingByDefault = request.AllowQueueVotingByDefault;
             config.AllowParticipantQueueAdds = request.AllowParticipantQueueAdds;
             config.AllowParticipantInvitesByDefault = request.AllowParticipantInvitesByDefault;
+            config.AllowAndroidTvPlaybackTargets = request.AllowAndroidTvPlaybackTargets;
             config.PersistRoomHistory = request.PersistRoomHistory;
             config.DefaultInviteExpirationHours = Math.Clamp(request.DefaultInviteExpirationHours, 0, 24 * 30);
             plugin.SaveConfiguration(config);
@@ -341,7 +355,7 @@ namespace JellTogether.Plugin.Api
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
             if (!room.Participants.Contains(CurrentUserId)) return Forbid();
-            if (!CanManage(room) && Plugin.Instance?.Configuration.AllowParticipantQueueAdds == false) return Forbid();
+            if (!CanAddToQueue(room)) return Forbid();
 
             var request = ParseQueueItemRequest(payload);
             var allowedLibraryIds = Plugin.Instance?.Configuration.EnabledLibraryIds ?? new List<string>();
@@ -354,8 +368,9 @@ namespace JellTogether.Plugin.Api
 
             var title = request.Title;
             if (string.IsNullOrWhiteSpace(title)) return BadRequest("Queue title is required.");
-            _roomManager.AddToQueue(roomId, title, CurrentUserId, request.MediaId, request.LibraryId, request.MediaType, request.Overview);
-            return Ok();
+            return _roomManager.AddToQueue(roomId, title, CurrentUserId, request.MediaId, request.LibraryId, request.MediaType, request.Overview)
+                ? Ok()
+                : Forbid();
         }
 
         [HttpPost("Rooms/{roomId}/Queue/{itemId}/Vote")]
@@ -376,6 +391,16 @@ namespace JellTogether.Plugin.Api
             if (!CanManage(room)) return Forbid();
 
             return _roomManager.MoveQueueItem(roomId, itemId, direction, CurrentUserId) ? Ok() : BadRequest("Unable to move queue item.");
+        }
+
+        [HttpDelete("Rooms/{roomId}/Queue")]
+        public ActionResult ClearQueue(string roomId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManage(room)) return Forbid();
+
+            return _roomManager.ClearQueue(roomId, CurrentUserId) ? Ok() : BadRequest("Unable to clear queue.");
         }
 
         [HttpDelete("Rooms/{roomId}/Queue/{itemId}")]
@@ -403,14 +428,14 @@ namespace JellTogether.Plugin.Api
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
-            if (!CanManage(room)) return Forbid();
+            if (!CanControlPlayback(room)) return Forbid();
 
             var item = room.Queue.FirstOrDefault(queueItem => queueItem.Id == itemId);
             if (item == null) return NotFound();
             if (!Guid.TryParse(item.MediaId, out var mediaId)) return BadRequest("Queue item is not linked to a playable Jellyfin item.");
 
             var targets = PlaybackTargetsForRoom(room)
-                .Where(target => target.IsActive && target.SupportsRemoteControl && target.SupportsMediaControl)
+                .Where(target => target.CanStartPlayback)
                 .ToList();
 
             var requestedSessionIds = request?.TargetSessionIds?.Where(id => !string.IsNullOrWhiteSpace(id)).ToHashSet(StringComparer.OrdinalIgnoreCase) ?? new();
@@ -518,7 +543,12 @@ namespace JellTogether.Plugin.Api
             
             if (!isAdmin && !room.AllowParticipantInvites) return Forbid();
 
-            var perms = new ParticipantPermissions { CanChat = request.CanChat, CanControlPlayback = request.CanControl };
+            var perms = new ParticipantPermissions
+            {
+                CanChat = request.CanChat,
+                CanControlPlayback = request.CanControl,
+                CanAddToQueue = request.CanAddToQueue
+            };
             var invite = _roomManager.CreateInvite(roomId, CurrentUserId, perms, request.HoursValid, request.MaxUses);
             return Ok(invite);
         }
@@ -608,10 +638,17 @@ namespace JellTogether.Plugin.Api
             if (room == null) return NotFound();
 
             var callerId = CurrentUserId;
-            // Only Owner or Co-Host can change permissions
             if (room.OwnerId != callerId && !room.CoHostIds.Contains(callerId))
             {
                 return Forbid();
+            }
+
+            if (room.OwnerId != callerId)
+            {
+                var existingPermissions = room.Permissions.TryGetValue(userId, out var existing)
+                    ? existing
+                    : new ParticipantPermissions();
+                permissions.CanManageParticipants = existingPermissions.CanManageParticipants;
             }
 
             _roomManager.SetUserPermissions(roomId, userId, permissions.CanChat, permissions.CanControlPlayback, permissions.CanAddToQueue, permissions.CanManageParticipants);
@@ -878,6 +915,23 @@ namespace JellTogether.Plugin.Api
                 permissions.CanManageParticipants;
         }
 
+        private bool CanControlPlayback(JellTogetherRoom room)
+        {
+            if (CanManage(room)) return true;
+            if (!room.Participants.Contains(CurrentUserId) || room.IsHostOnlyControl) return false;
+            return !room.Permissions.TryGetValue(CurrentUserId, out var permissions) ||
+                permissions.CanControlPlayback;
+        }
+
+        private bool CanAddToQueue(JellTogetherRoom room)
+        {
+            if (CanManage(room)) return true;
+            if (!room.Participants.Contains(CurrentUserId)) return false;
+            if (Plugin.Instance?.Configuration.AllowParticipantQueueAdds == false) return false;
+            return !room.Permissions.TryGetValue(CurrentUserId, out var permissions) ||
+                permissions.CanAddToQueue;
+        }
+
         private JellTogetherRoom RoomForUser(JellTogetherRoom room)
         {
             room.DiscordBotToken = null;
@@ -895,22 +949,67 @@ namespace JellTogether.Plugin.Api
         {
             return _sessionManager.Sessions
                 .Where(session => SessionBelongsToRoomParticipant(session, room))
-                .Select(session => new PlaybackTargetDto
+                .Select(session =>
                 {
-                    SessionId = session.Id,
-                    UserId = session.UserId.ToString("D"),
-                    UserName = session.UserName,
-                    Client = session.Client,
-                    DeviceName = session.DeviceName,
-                    IsActive = session.IsActive,
-                    SupportsRemoteControl = session.SupportsRemoteControl,
-                    SupportsMediaControl = session.SupportsMediaControl,
-                    IsCurrentUser = SessionMatchesCurrentUser(session)
+                    var isAndroidTv = IsAndroidTvSession(session);
+                    var allowAndroidTv = Plugin.Instance?.Configuration.AllowAndroidTvPlaybackTargets ?? true;
+                    var canStartPlayback = CanStartPlayback(session, isAndroidTv, allowAndroidTv);
+                    return new PlaybackTargetDto
+                    {
+                        SessionId = session.Id,
+                        UserId = session.UserId.ToString("D"),
+                        UserName = session.UserName,
+                        Client = session.Client,
+                        DeviceName = session.DeviceName,
+                        IsActive = session.IsActive,
+                        SupportsRemoteControl = session.SupportsRemoteControl,
+                        SupportsMediaControl = session.SupportsMediaControl,
+                        IsCurrentUser = SessionMatchesCurrentUser(session),
+                        IsAndroidTv = isAndroidTv,
+                        CanStartPlayback = canStartPlayback,
+                        EligibilityReason = PlaybackEligibilityReason(session, isAndroidTv, allowAndroidTv, canStartPlayback)
+                    };
                 })
                 .OrderByDescending(target => target.IsCurrentUser)
+                .ThenByDescending(target => target.CanStartPlayback)
+                .ThenByDescending(target => target.IsAndroidTv)
                 .ThenBy(target => target.UserName)
                 .ThenBy(target => target.DeviceName)
                 .ToList();
+        }
+
+        private static bool CanStartPlayback(SessionInfo session, bool isAndroidTv, bool allowAndroidTv)
+        {
+            if (!session.IsActive) return false;
+            if (session.SupportsRemoteControl && session.SupportsMediaControl) return true;
+            return allowAndroidTv && isAndroidTv && session.SupportsRemoteControl;
+        }
+
+        private static string PlaybackEligibilityReason(SessionInfo session, bool isAndroidTv, bool allowAndroidTv, bool canStartPlayback)
+        {
+            if (canStartPlayback && isAndroidTv && !session.SupportsMediaControl)
+            {
+                return "Android TV remote-start mode";
+            }
+
+            if (canStartPlayback) return "Ready";
+            if (!session.IsActive) return "Inactive";
+            if (isAndroidTv && !allowAndroidTv) return "Android TV targeting disabled";
+            if (!session.SupportsRemoteControl) return "Remote control unavailable";
+            if (!session.SupportsMediaControl) return "Media control unavailable";
+            return "Unavailable";
+        }
+
+        private static bool IsAndroidTvSession(SessionInfo session)
+        {
+            var client = session.Client ?? string.Empty;
+            var device = session.DeviceName ?? string.Empty;
+            var text = $"{client} {device}";
+            return text.Contains("Android TV", StringComparison.OrdinalIgnoreCase) ||
+                text.Contains("Jellyfin TV", StringComparison.OrdinalIgnoreCase) ||
+                text.Contains("Google TV", StringComparison.OrdinalIgnoreCase) ||
+                text.Contains("NVIDIA SHIELD", StringComparison.OrdinalIgnoreCase) ||
+                text.Contains("Shield Android TV", StringComparison.OrdinalIgnoreCase);
         }
 
         private bool SessionBelongsToRoomParticipant(SessionInfo session, JellTogetherRoom room)
