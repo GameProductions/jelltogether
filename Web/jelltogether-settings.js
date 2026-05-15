@@ -97,10 +97,17 @@ class JellTogetherSettingsApp {
             .map(item => ({
                 id: item.Id || item.id || '',
                 name: item.Name || item.name || 'Untitled library',
-                type: item.CollectionType || item.collectionType || item.Type || item.type || fallbackType
+                type: item.CollectionType || item.collectionType || item.Type || item.type || fallbackType,
+                imageUrl: this.libraryImageUrl(item)
             }))
             .filter(item => item.id)
             .sort((a, b) => a.name.localeCompare(b.name));
+    }
+
+    libraryImageUrl(item) {
+        const id = item.Id || item.id || '';
+        if (!id) return '';
+        return `/Items/${encodeURIComponent(id)}/Images/Primary?fillHeight=96&fillWidth=96&quality=90`;
     }
 
     currentUserId() {
@@ -120,12 +127,22 @@ class JellTogetherSettingsApp {
         this.libraries.forEach(library => {
             const label = document.createElement('label');
             label.className = 'library-option';
-            label.innerHTML = `<span><strong></strong><em></em></span>`;
+            label.innerHTML = `<span class="library-thumb" aria-hidden="true"></span><span class="library-copy"><strong></strong><em></em></span>`;
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
             checkbox.value = library.id;
             checkbox.checked = selected.size === 0 || selected.has(library.id);
             label.prepend(checkbox);
+            const thumb = label.querySelector('.library-thumb');
+            if (library.imageUrl) {
+                const image = document.createElement('img');
+                image.alt = '';
+                image.loading = 'lazy';
+                image.src = library.imageUrl;
+                image.onload = () => thumb.classList.add('has-image');
+                image.onerror = () => image.remove();
+                thumb.appendChild(image);
+            }
             label.querySelector('strong').textContent = library.name;
             label.querySelector('em').textContent = library.type;
             container.appendChild(label);

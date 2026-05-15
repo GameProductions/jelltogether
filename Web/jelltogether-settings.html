@@ -32,26 +32,43 @@
 
         <section class="settings-section">
             <div class="section-label">System Defaults</div>
-            <label class="toggle-row settings-toggle">
-                <input type="checkbox" id="settings-queue-voting">
-                <span>Enable queue voting in new rooms</span>
-            </label>
-            <label class="toggle-row settings-toggle">
-                <input type="checkbox" id="settings-participant-queue">
-                <span>Allow participants to add queue items</span>
-            </label>
-            <label class="toggle-row settings-toggle">
-                <input type="checkbox" id="settings-participant-invites">
-                <span>Allow participant invites in new rooms</span>
-            </label>
-            <label class="toggle-row settings-toggle">
-                <input type="checkbox" id="settings-persist-history">
-                <span>Persist room state between server restarts</span>
-            </label>
-            <label class="modal-field">
-                <span>Default invite expiration hours</span>
-                <input type="number" min="0" max="720" id="settings-invite-hours" class="glass-input">
-            </label>
+            <div class="settings-option-grid">
+                <label class="settings-option-card">
+                    <input type="checkbox" id="settings-queue-voting">
+                    <span>
+                        <strong>Queue voting</strong>
+                        <em>Let new rooms use votes to decide what plays next.</em>
+                    </span>
+                </label>
+                <label class="settings-option-card">
+                    <input type="checkbox" id="settings-participant-queue">
+                    <span>
+                        <strong>Participant queue adds</strong>
+                        <em>Allow guests to suggest media for the room queue.</em>
+                    </span>
+                </label>
+                <label class="settings-option-card">
+                    <input type="checkbox" id="settings-participant-invites">
+                    <span>
+                        <strong>Participant invites</strong>
+                        <em>Allow guests to create invite links and QR codes.</em>
+                    </span>
+                </label>
+                <label class="settings-option-card">
+                    <input type="checkbox" id="settings-persist-history">
+                    <span>
+                        <strong>Persist room state</strong>
+                        <em>Keep room state available across Jellyfin restarts.</em>
+                    </span>
+                </label>
+                <label class="settings-option-card numeric">
+                    <span>
+                        <strong>Invite expiration</strong>
+                        <em>Default hours before generated invites expire.</em>
+                    </span>
+                    <input type="number" min="0" max="720" id="settings-invite-hours" class="glass-input">
+                </label>
+            </div>
         </section>
     </div>
 

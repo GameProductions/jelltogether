@@ -1,5 +1,9 @@
 # JellTogether Changelog
 
+## [2026-05-15] - Global settings card polish
+- Changed system default options into card-style controls.
+- Added thumbnail previews to library access cards when Jellyfin has a library image.
+
 ## [2026-05-13] - Room moderation controls
 - Added join approval, join locking, pending join requests, kick, ban, unban, and reject controls.
 - Added per-participant permissions for chat, playback control, queue adds, and delegated participant management.

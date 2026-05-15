@@ -997,9 +997,9 @@ h1 {
 }
 
 .library-option {
-    min-height: 64px;
+    min-height: 78px;
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: auto 54px minmax(0, 1fr);
     align-items: center;
     gap: 12px;
     padding: 12px;
@@ -1009,30 +1009,88 @@ h1 {
     color: var(--text-main);
 }
 
+.library-thumb {
+    width: 54px;
+    height: 54px;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 8px;
+    background:
+        radial-gradient(circle at 35% 25%, rgba(94, 234, 212, 0.22), transparent 42%),
+        rgba(255, 255, 255, 0.055);
+}
+
+.library-thumb::before {
+    content: "";
+    width: 22px;
+    height: 16px;
+    border: 2px solid rgba(219, 231, 255, 0.42);
+    border-radius: 4px;
+}
+
+.library-thumb.has-image::before {
+    content: none;
+}
+
+.library-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
 .library-option input,
-.settings-toggle input {
+.settings-option-card input[type="checkbox"] {
     width: 17px;
     height: 17px;
     accent-color: var(--primary);
 }
 
 .library-option strong,
-.library-option em {
+.library-option em,
+.settings-option-card strong,
+.settings-option-card em {
     display: block;
     min-width: 0;
     overflow-wrap: anywhere;
 }
 
-.library-option em {
+.library-option em,
+.settings-option-card em {
     margin-top: 3px;
     color: var(--text-dim);
     font-size: 0.76rem;
     font-style: normal;
 }
 
-.settings-toggle {
-    width: fit-content;
-    margin: 0;
+.settings-option-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+}
+
+.settings-option-card {
+    min-height: 84px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 12px;
+    padding: 14px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    color: var(--text-main);
+    background: rgba(7, 10, 24, 0.48);
+}
+
+.settings-option-card.numeric {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.settings-option-card.numeric .glass-input {
+    margin-top: 4px;
+    max-width: 160px;
 }
 
 .media-search-results {
