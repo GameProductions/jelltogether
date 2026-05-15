@@ -886,6 +886,26 @@ h1 {
     gap: 2px;
 }
 
+.playback-target strong {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.target-badge {
+    width: fit-content;
+    padding: 3px 7px;
+    border: 1px solid rgba(94, 234, 212, 0.34);
+    border-radius: 999px;
+    color: var(--primary);
+    background: rgba(94, 234, 212, 0.10);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0;
+    text-transform: uppercase;
+}
+
 .playback-target em {
     color: var(--text-dim);
     font-size: 0.76rem;

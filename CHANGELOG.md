@@ -1,5 +1,9 @@
 # JellTogether Changelog
 
+## [2026-05-15] - Android TV playback targeting
+- Added a global option for Android TV playback targeting.
+- Mark Android TV sessions in the Start Watch Party target picker and allow remote-start targeting when the client advertises remote control.
+
 ## [2026-05-15] - Global settings card polish
 - Changed system default options into card-style controls.
 - Added thumbnail previews to library access cards when Jellyfin has a library image.

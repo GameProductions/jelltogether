@@ -54,6 +54,7 @@ class JellTogetherSettingsApp {
             document.getElementById('settings-queue-voting').checked = this.settings.allowQueueVotingByDefault !== false;
             document.getElementById('settings-participant-queue').checked = this.settings.allowParticipantQueueAdds !== false;
             document.getElementById('settings-participant-invites').checked = this.settings.allowParticipantInvitesByDefault !== false;
+            document.getElementById('settings-android-tv-targets').checked = this.settings.allowAndroidTvPlaybackTargets !== false;
             document.getElementById('settings-persist-history').checked = this.settings.persistRoomHistory !== false;
             document.getElementById('settings-invite-hours').value = this.settings.defaultInviteExpirationHours ?? 24;
             this.updateCompanionPill();
@@ -181,6 +182,7 @@ class JellTogetherSettingsApp {
             allowQueueVotingByDefault: document.getElementById('settings-queue-voting')?.checked === true,
             allowParticipantQueueAdds: document.getElementById('settings-participant-queue')?.checked === true,
             allowParticipantInvitesByDefault: document.getElementById('settings-participant-invites')?.checked === true,
+            allowAndroidTvPlaybackTargets: document.getElementById('settings-android-tv-targets')?.checked === true,
             persistRoomHistory: document.getElementById('settings-persist-history')?.checked === true,
             defaultInviteExpirationHours: parseInt(document.getElementById('settings-invite-hours')?.value || '24', 10)
         };

@@ -14,6 +14,7 @@ namespace JellTogether.Plugin.Configuration
         public bool AllowQueueVotingByDefault { get; set; } = true;
         public bool AllowParticipantQueueAdds { get; set; } = true;
         public bool AllowParticipantInvitesByDefault { get; set; } = true;
+        public bool AllowAndroidTvPlaybackTargets { get; set; } = true;
         public bool PersistRoomHistory { get; set; } = true;
         public int DefaultInviteExpirationHours { get; set; } = 24;
     }

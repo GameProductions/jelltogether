@@ -9,12 +9,12 @@
     "category": "Social",
     "versions": [
       {
-        "version": "1.2.8.0",
-        "changelog": "Polish global settings cards and show library thumbnails when available.",
+        "version": "1.2.9.0",
+        "changelog": "Add Android TV playback targeting for watch party starts.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.8.0/jelltogether_1.2.8.0.zip",
-        "checksum": "388AC34DCB36075CAC9478D0407487A2",
-        "timestamp": "2026-05-15T04:09:51Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.9.0/jelltogether_1.2.9.0.zip",
+        "checksum": "F32AA781058718A0496EF06D8138B57F",
+        "timestamp": "2026-05-15T04:36:16Z"
       }
     ]
   }

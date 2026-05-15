@@ -1226,9 +1226,9 @@ class JellTogetherApp {
 
     renderPlaybackTargets(container, targets, startButton) {
         this.clear(container);
-        const eligible = targets.filter(target => target.isActive && target.supportsRemoteControl && target.supportsMediaControl);
+        const eligible = targets.filter(target => target.canStartPlayback || (target.isActive && target.supportsRemoteControl && target.supportsMediaControl));
         if (!eligible.length) {
-            container.appendChild(this.textEl('div', 'No active controllable Jellyfin sessions found for people in this room.', 'loading'));
+            container.appendChild(this.textEl('div', 'No active controllable Jellyfin sessions found for people in this room. Open Jellyfin on Android TV or another client, then try again.', 'loading'));
             startButton.disabled = true;
             return;
         }
@@ -1245,8 +1245,13 @@ class JellTogetherApp {
             });
             label.appendChild(input);
             const text = document.createElement('span');
-            text.appendChild(this.textEl('strong', target.userName || target.userId || 'Jellyfin user'));
-            text.appendChild(this.textEl('em', [target.client, target.deviceName].filter(Boolean).join(' • ') || 'Active session'));
+            const title = document.createElement('strong');
+            title.textContent = target.userName || target.userId || 'Jellyfin user';
+            if (target.isAndroidTv) {
+                title.appendChild(this.textEl('span', 'Android TV', 'target-badge'));
+            }
+            text.appendChild(title);
+            text.appendChild(this.textEl('em', [target.client, target.deviceName, target.eligibilityReason].filter(Boolean).join(' • ') || 'Active session'));
             label.appendChild(text);
             container.appendChild(label);
         });
