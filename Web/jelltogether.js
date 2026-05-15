@@ -19,6 +19,7 @@ class JellTogetherApp {
         this.activeSidebarTab = 'chat';
         this.replyTarget = null;
         this.authPromptShown = false;
+        this.pendingInviteCode = "";
 
         this._lastCinemaData = null;
         this._lastParticipantData = null;
@@ -32,6 +33,7 @@ class JellTogetherApp {
 
     async init() {
         const inviteCode = this.getInviteCodeFromUrl();
+        this.pendingInviteCode = inviteCode || "";
         await this.loadSettings();
         await this.loadCurrentUser();
         await this.loadRooms();
@@ -39,7 +41,7 @@ class JellTogetherApp {
         this.checkVR();
         this.createStars();
         this.setupEventHandlers();
-        if (inviteCode) this.joinByCode(inviteCode);
+        if (inviteCode && this.currentUser !== "Unknown") this.joinByCode(inviteCode);
     }
 
     getInviteCodeFromUrl() {
@@ -176,6 +178,7 @@ class JellTogetherApp {
     getAccessToken() {
         const apiClient = window.ApiClient;
         const candidates = [
+            this.storedAuth()?.AccessToken,
             typeof apiClient?.accessToken === 'function' ? apiClient.accessToken() : apiClient?.accessToken,
             typeof apiClient?.getAccessToken === 'function' ? apiClient.getAccessToken() : null,
             apiClient?._serverInfo?.AccessToken,
@@ -203,6 +206,26 @@ class JellTogetherApp {
         return "";
     }
 
+    storedAuth() {
+        try {
+            const raw = localStorage.getItem('jelltogether-auth');
+            return raw ? JSON.parse(raw) : null;
+        } catch (e) {
+            console.error("Stored auth lookup failed:", e);
+            return null;
+        }
+    }
+
+    saveAuth(auth) {
+        if (!auth?.AccessToken) return;
+        localStorage.setItem('jelltogether-auth', JSON.stringify({
+            AccessToken: auth.AccessToken,
+            User: auth.User || null,
+            ServerId: auth.ServerId || '',
+            savedAt: new Date().toISOString()
+        }));
+    }
+
     findAccessToken(value) {
         if (!value || typeof value !== 'object') return "";
         if (typeof value.AccessToken === 'string' && value.AccessToken.trim()) return value.AccessToken.trim();
@@ -220,29 +243,72 @@ class JellTogetherApp {
         if (this.authPromptShown) return;
         this.authPromptShown = true;
         this.showToast("Sign in to Jellyfin to use JellTogether.", 'error');
-
-        const overlay = document.createElement('div');
-        overlay.id = 'app-modal-overlay';
-        overlay.className = 'app-modal-overlay';
-        const modal = document.createElement('div');
-        modal.id = 'app-modal';
-        modal.className = 'app-modal glass-card';
-        modal.appendChild(this.textEl('h3', 'Sign in required'));
-        modal.appendChild(this.textEl('p', 'Open Jellyfin, sign in, then return to this companion link.', 'modal-subtitle'));
-        const actionRow = document.createElement('div');
-        actionRow.className = 'split-actions';
-        actionRow.appendChild(this.button('Open Jellyfin Sign In', 'primary-command', () => this.openJellyfinSignIn()));
-        actionRow.appendChild(this.button('Dismiss', 'secondary-command', () => this.hideModal()));
-        modal.appendChild(actionRow);
-        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
-        overlay.appendChild(modal);
-        this.hideModal();
-        document.body.appendChild(overlay);
+        this.showJellyfinSignInModal();
     }
 
-    openJellyfinSignIn() {
-        const returnUrl = window.location.href;
-        window.location.href = `${window.location.origin}/web/index.html?returnUrl=${encodeURIComponent(returnUrl)}`;
+    showJellyfinSignInModal() {
+        this.showModal('Sign in to Jellyfin', [
+            { id: 'username', type: 'text', label: 'Username', placeholder: 'Jellyfin username' },
+            { id: 'password', type: 'password', label: 'Password', placeholder: 'Jellyfin password' }
+        ], [
+            { label: 'Sign In', primary: true, onClick: (values) => this.signInToJellyfin(values) }
+        ]);
+    }
+
+    async signInToJellyfin({ username, password }) {
+        const name = (username || '').trim();
+        if (!name || !password) {
+            this.showToast("Enter your Jellyfin username and password.", 'error');
+            this.authPromptShown = false;
+            this.showJellyfinSignInModal();
+            return;
+        }
+
+        try {
+            const response = await fetch('/Users/AuthenticateByName', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': this.jellyfinAuthorizationHeader()
+                },
+                body: JSON.stringify({ Username: name, Pw: password })
+            });
+
+            if (!response.ok) throw new Error(`Sign in failed with ${response.status}`);
+            const auth = await response.json();
+            this.saveAuth(auth);
+            this.authPromptShown = false;
+            this.showToast("Signed in to Jellyfin.", 'success');
+            await this.reloadAfterSignIn();
+        } catch (e) {
+            console.error("Jellyfin Sign In Error:", e);
+            this.showToast("Sign in failed. Check your Jellyfin credentials.", 'error');
+            this.authPromptShown = false;
+            this.showJellyfinSignInModal();
+        }
+    }
+
+    jellyfinAuthorizationHeader() {
+        const deviceId = this.deviceId();
+        return `MediaBrowser Client="JellTogether Companion", Device="Browser", DeviceId="${deviceId}", Version="1.2.11.0"`;
+    }
+
+    deviceId() {
+        const key = 'jelltogether-device-id';
+        let id = localStorage.getItem(key);
+        if (!id) {
+            id = (crypto?.randomUUID?.() || `jelltogether-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+            localStorage.setItem(key, id);
+        }
+        return id;
+    }
+
+    async reloadAfterSignIn() {
+        await this.loadSettings();
+        await this.loadCurrentUser();
+        await this.loadRooms();
+        if (this.pendingInviteCode) await this.joinByCode(this.pendingInviteCode);
     }
 
     jsonPost(url, value) {

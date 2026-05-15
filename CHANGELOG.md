@@ -1,5 +1,9 @@
 # JellTogether Changelog
 
+## [2026-05-15] - Companion sign-in
+- Added companion-side Jellyfin account sign-in and local token reuse for public companion access.
+- Resume pending invite-code joins after successful companion sign-in.
+
 ## [2026-05-15] - Permission and settings fixes
 - Made playback-control permissions apply to Start Watch Party.
 - Kept queue reordering scoped to hosts and co-hosts so API permissions match the UI.
