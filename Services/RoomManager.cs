@@ -831,6 +831,19 @@ namespace JellTogether.Plugin.Services
             }
         }
 
+        public bool ClearQueue(string roomId, string userId)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room)) return false;
+                if (room.OwnerId != userId && !room.CoHostIds.Contains(userId)) return false;
+
+                room.Queue.Clear();
+                Touch(room);
+                return true;
+            }
+        }
+
         public void MarkNowPlaying(string roomId, QueueItem item)
         {
             lock (_roomLock)

@@ -10,8 +10,11 @@
                     <span>JellTogether</span>
                 </div>
                 <div class="user-profile">
-                    <span class="profile-label">Signed in</span>
-                    <span id="display-name">Loading...</span>
+                    <div class="user-profile-copy">
+                        <span class="profile-label">Signed in</span>
+                        <span id="display-name">Loading...</span>
+                    </div>
+                    <button id="btn-auth-action" class="micro-command" onclick="app.handleAuthAction()">Sign Out</button>
                 </div>
             </header>
 
@@ -76,7 +79,10 @@
                 <section class="content-section">
                     <div class="section-heading">
                         <h3>Up Next</h3>
-                        <button id="btn-add-queue" class="secondary-command compact" onclick="app.addToQueue()">Add to Queue</button>
+                        <div class="queue-heading-actions">
+                            <button id="btn-clear-queue" class="danger-command compact" onclick="app.confirmClearQueue()" style="display: none;">Clear Queue</button>
+                            <button id="btn-add-queue" class="secondary-command compact" onclick="app.addToQueue()">Add to Queue</button>
+                        </div>
                     </div>
                     <div id="queue-panel" class="queue-panel">
                         <div class="loading">Queue is empty.</div>

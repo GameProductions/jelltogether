@@ -1,5 +1,12 @@
 # JellTogether Changelog
 
+## [2026-05-15] - Queue and media details
+- Added a companion sign-out/sign-in action.
+- Added paginated Up Next queue controls after 10 items.
+- Added host and co-host queue clearing.
+- Added media detail previews for search results and queued Jellyfin items.
+- Added selectable collection, season, and episode queue additions.
+
 ## [2026-05-15] - Companion sign-in
 - Added companion-side Jellyfin account sign-in and local token reuse for public companion access.
 - Resume pending invite-code joins after successful companion sign-in.

@@ -9,12 +9,12 @@
     "category": "Social",
     "versions": [
       {
-        "version": "1.2.11.0",
-        "changelog": "Add companion-side Jellyfin sign-in.",
+        "version": "1.2.12.0",
+        "changelog": "Add sign-out, paginated queue controls, clear queue, selectable group queueing, and media detail previews.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.11.0/jelltogether_1.2.11.0.zip",
-        "checksum": "7B186D59AF8329367D9B4EF9A086C5A3",
-        "timestamp": "2026-05-15T16:01:10Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.12.0/jelltogether_1.2.12.0.zip",
+        "checksum": "438234E07B206B9D871CA641F6762817",
+        "timestamp": "2026-05-15T21:41:12Z"
       }
     ]
   }

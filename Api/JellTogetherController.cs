@@ -393,6 +393,16 @@ namespace JellTogether.Plugin.Api
             return _roomManager.MoveQueueItem(roomId, itemId, direction, CurrentUserId) ? Ok() : BadRequest("Unable to move queue item.");
         }
 
+        [HttpDelete("Rooms/{roomId}/Queue")]
+        public ActionResult ClearQueue(string roomId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManage(room)) return Forbid();
+
+            return _roomManager.ClearQueue(roomId, CurrentUserId) ? Ok() : BadRequest("Unable to clear queue.");
+        }
+
         [HttpDelete("Rooms/{roomId}/Queue/{itemId}")]
         public ActionResult RemoveQueueItem(string roomId, string itemId)
         {

@@ -20,6 +20,9 @@ class JellTogetherApp {
         this.replyTarget = null;
         this.authPromptShown = false;
         this.pendingInviteCode = "";
+        this.queuePage = 1;
+        this.queuePageSize = 10;
+        this.mediaDetailsCache = new Map();
 
         this._lastCinemaData = null;
         this._lastParticipantData = null;
@@ -151,6 +154,7 @@ class JellTogetherApp {
 
         const display = document.getElementById('display-name');
         if (display) display.textContent = this.currentUser;
+        this.updateAuthAction();
     }
 
     async fetchJson(url, options = {}) {
@@ -291,7 +295,7 @@ class JellTogetherApp {
 
     jellyfinAuthorizationHeader() {
         const deviceId = this.deviceId();
-        return `MediaBrowser Client="JellTogether Companion", Device="Browser", DeviceId="${deviceId}", Version="1.2.11.0"`;
+        return `MediaBrowser Client="JellTogether Companion", Device="Browser", DeviceId="${deviceId}", Version="1.2.12.0"`;
     }
 
     deviceId() {
@@ -309,6 +313,42 @@ class JellTogetherApp {
         await this.loadCurrentUser();
         await this.loadRooms();
         if (this.pendingInviteCode) await this.joinByCode(this.pendingInviteCode);
+    }
+
+    async signOut() {
+        localStorage.removeItem('jelltogether-auth');
+        this.authPromptShown = false;
+        this.currentUser = "Unknown";
+        this.currentJellyfinMediaUserId = "";
+        this.currentRoom = null;
+        this.pendingInviteCode = this.getInviteCodeFromUrl() || "";
+        this.queuePage = 1;
+        this.resetRenderCaches();
+        this.hideModal();
+
+        const display = document.getElementById('display-name');
+        if (display) display.textContent = 'Signed out';
+        this.updateAuthAction();
+        const lobby = document.getElementById('lobby-view');
+        const party = document.getElementById('party-view');
+        if (lobby) lobby.style.display = 'block';
+        if (party) party.style.display = 'none';
+        this.showToast("Signed out of the companion.", 'success');
+    }
+
+    handleAuthAction() {
+        if (!this.currentUser || this.currentUser === "Unknown") {
+            this.showJellyfinSignInModal();
+            return;
+        }
+
+        this.signOut();
+    }
+
+    updateAuthAction() {
+        const button = document.getElementById('btn-auth-action');
+        if (!button) return;
+        button.textContent = (!this.currentUser || this.currentUser === "Unknown") ? 'Sign In' : 'Sign Out';
     }
 
     jsonPost(url, value) {
@@ -364,7 +404,13 @@ class JellTogetherApp {
             upvotes: this.prop(item, 'upvotes', null, []),
             mediaType: this.prop(item, 'mediaType', null, ''),
             overview: this.prop(item, 'overview', null, ''),
-            addedBy: this.prop(item, 'addedBy', null, 'Unknown')
+            addedBy: this.prop(item, 'addedBy', null, 'Unknown'),
+            year: this.prop(item, 'year', null, ''),
+            seriesId: this.prop(item, 'seriesId', null, ''),
+            seriesName: this.prop(item, 'seriesName', null, ''),
+            seasonId: this.prop(item, 'seasonId', null, ''),
+            seasonName: this.prop(item, 'seasonName', null, ''),
+            parentId: this.prop(item, 'parentId', null, '')
         };
     }
 
@@ -834,6 +880,11 @@ class JellTogetherApp {
         document.getElementById('btn-send').disabled = !canChat;
         const addQueueBtn = document.getElementById('btn-add-queue');
         if (addQueueBtn) addQueueBtn.disabled = !this.canAddQueue();
+        const clearQueueBtn = document.getElementById('btn-clear-queue');
+        if (clearQueueBtn) {
+            clearQueueBtn.style.display = this.canManage() && this.currentRoom.queue.length ? 'inline-flex' : 'none';
+            clearQueueBtn.disabled = !this.currentRoom.queue.length;
+        }
 
         this.renderPlayerState();
         this.renderParticipants();
@@ -986,42 +1037,210 @@ class JellTogetherApp {
     }
 
     async showQueueAddOptions(item) {
-        const modal = document.getElementById('app-modal');
-        if (!modal || !item?.mediaId) {
-            await this.addMediaToQueue(item);
-            return;
+        await this.showMediaDetails(item, { backToSearch: true });
+    }
+
+    async showMediaDetails(item, options = {}) {
+        if (!item?.mediaId) return;
+        this.hideModal();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card media-detail-modal';
+        modal.appendChild(this.textEl('div', 'Loading media details...', 'loading'));
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        try {
+            const details = await this.fetchMediaDetails(item);
+            this.renderMediaDetails(modal, details, options);
+        } catch (e) {
+            console.error('Media Details Error:', e);
+            this.renderMediaDetails(modal, item, options);
+            this.showToast("Some media details could not be loaded.", 'error');
+        }
+    }
+
+    async fetchMediaDetails(item) {
+        const key = item.mediaId;
+        if (this.mediaDetailsCache.has(key)) return { ...item, ...this.mediaDetailsCache.get(key) };
+
+        const userId = this.currentJellyfinUserId();
+        if (!userId || !item.mediaId) return item;
+        const params = new URLSearchParams({
+            Fields: 'Overview,Genres,People,Studios,Tags,ProviderIds,RunTimeTicks,CommunityRating,OfficialRating,PremiereDate,ProductionYear,ParentId,SeriesId,SeasonId,ImageTags'
+        });
+        const data = await this.fetchJson(`/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(item.mediaId)}?${params}`);
+        const details = this.normalizeMediaDetails(data, item);
+        this.mediaDetailsCache.set(key, details);
+        return details;
+    }
+
+    normalizeMediaDetails(data, fallback = {}) {
+        const type = data.Type || data.type || fallback.mediaType || '';
+        const people = data.People || data.people || [];
+        const cast = people
+            .filter(person => String(person.Type || person.type || '').toLowerCase() === 'actor')
+            .slice(0, 8)
+            .map(person => [person.Name || person.name, person.Role || person.role].filter(Boolean).join(' as '))
+            .filter(Boolean);
+
+        return {
+            ...fallback,
+            title: this.mediaTitle(data) || fallback.title || 'Untitled item',
+            mediaId: data.Id || data.id || fallback.mediaId || '',
+            mediaType: type,
+            overview: data.Overview || data.overview || fallback.overview || '',
+            year: data.ProductionYear || data.productionYear || fallback.year || '',
+            runtimeTicks: data.RunTimeTicks || data.runTimeTicks || 0,
+            communityRating: data.CommunityRating || data.communityRating || '',
+            officialRating: data.OfficialRating || data.officialRating || '',
+            genres: data.Genres || data.genres || [],
+            cast,
+            seriesId: data.SeriesId || data.seriesId || fallback.seriesId || '',
+            seriesName: data.SeriesName || data.seriesName || fallback.seriesName || '',
+            seasonId: data.SeasonId || data.seasonId || fallback.seasonId || '',
+            seasonName: data.SeasonName || data.seasonName || fallback.seasonName || '',
+            parentId: data.ParentId || data.parentId || fallback.parentId || ''
+        };
+    }
+
+    renderMediaDetails(modal, item, options = {}) {
+        this.clear(modal);
+        modal.className = 'app-modal glass-card media-detail-modal';
+
+        const header = document.createElement('div');
+        header.className = 'media-detail-header';
+        const poster = document.createElement('div');
+        poster.className = 'media-detail-poster';
+        const img = document.createElement('img');
+        img.alt = '';
+        img.src = this.posterUrl(item.mediaId, 360, 240);
+        img.onerror = () => poster.classList.add('is-empty');
+        poster.appendChild(img);
+        header.appendChild(poster);
+
+        const copy = document.createElement('div');
+        copy.className = 'media-detail-copy';
+        copy.appendChild(this.textEl('h3', item.title || 'Untitled item'));
+        const meta = [
+            item.mediaType,
+            item.year,
+            this.formatRuntime(item.runtimeTicks),
+            item.officialRating,
+            item.communityRating ? `${Number(item.communityRating).toFixed(1)} stars` : ''
+        ].filter(Boolean);
+        copy.appendChild(this.textEl('p', meta.join(' • ') || 'Jellyfin item', 'modal-subtitle'));
+        if (item.genres?.length) copy.appendChild(this.textEl('p', item.genres.slice(0, 5).join(' • '), 'media-detail-meta'));
+        header.appendChild(copy);
+        modal.appendChild(header);
+
+        modal.appendChild(this.textEl('p', item.overview || 'No synopsis is available for this item.', 'media-detail-overview'));
+        if (item.cast?.length) {
+            modal.appendChild(this.textEl('h4', 'Cast'));
+            modal.appendChild(this.textEl('p', item.cast.join(' • '), 'media-detail-meta'));
         }
 
-        this.clear(modal);
-        modal.className = 'app-modal glass-card queue-search-modal';
-        modal.appendChild(this.textEl('h3', 'Add to Queue'));
-        modal.appendChild(this.textEl('p', item.title, 'modal-subtitle'));
-
-        const options = document.createElement('div');
-        options.className = 'queue-add-options';
-        options.appendChild(this.button('Add this item', 'primary-command', () => this.addMediaToQueue(item)));
-        options.appendChild(this.textEl('div', 'Looking for seasons, series, and collections...', 'loading'));
-        modal.appendChild(options);
+        const optionsWrap = document.createElement('div');
+        optionsWrap.className = 'queue-add-options';
+        if (this.currentRoom && this.canAddQueue()) {
+            if (this.isDirectQueueItem(item)) {
+                optionsWrap.appendChild(this.button('Add This Item', 'primary-command', () => this.addMediaToQueue(item)));
+            } else {
+                optionsWrap.appendChild(this.textEl('div', 'Choose the playable items below to add this title to the queue.', 'media-detail-note'));
+            }
+            optionsWrap.appendChild(this.textEl('div', 'Looking for seasons, episodes, and collections...', 'loading queue-options-loading'));
+        }
+        modal.appendChild(optionsWrap);
 
         const actionRow = document.createElement('div');
         actionRow.className = 'split-actions';
-        actionRow.appendChild(this.button('Back to search', 'secondary-command', () => this.showQueueSearchModal()));
+        if (options.backToSearch) actionRow.appendChild(this.button('Back to Search', 'secondary-command', () => this.showQueueSearchModal()));
         actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
         modal.appendChild(actionRow);
 
-        const groupOptions = await this.queueGroupOptions(item);
-        const loading = options.querySelector('.loading');
-        if (loading) loading.remove();
-
-        if (!groupOptions.length) {
-            options.appendChild(this.textEl('div', 'No larger season, series, or collection was found for this item.', 'loading'));
-            return;
-        }
-
-        groupOptions.forEach(option => {
-            const label = `${option.label} (${option.items.length})`;
-            options.appendChild(this.button(label, 'secondary-command', () => this.addMediaGroupToQueue(option.items, option.successMessage)));
+        if (!this.currentRoom || !this.canAddQueue()) return;
+        this.queueGroupOptions(item).then(groupOptions => {
+            optionsWrap.querySelector('.queue-options-loading')?.remove();
+            if (!groupOptions.length) return;
+            groupOptions.forEach(option => {
+                const row = document.createElement('div');
+                row.className = 'queue-option-row';
+                row.appendChild(this.textEl('span', `${option.label} (${option.items.length})`));
+                row.appendChild(this.button('Choose', 'secondary-command compact', () => this.showQueueGroupPicker(option, item, options)));
+                row.appendChild(this.button('Add All', 'micro-command primary', () => this.addMediaGroupToQueue(option.items, option.successMessage)));
+                optionsWrap.appendChild(row);
+            });
+        }).catch(e => {
+            console.warn('Queue options lookup failed:', e);
+            optionsWrap.querySelector('.queue-options-loading')?.remove();
         });
+    }
+
+    posterUrl(mediaId, height = 420, width = 280) {
+        return mediaId ? `/Items/${encodeURIComponent(mediaId)}/Images/Primary?fillHeight=${height}&fillWidth=${width}&quality=90` : '';
+    }
+
+    formatRuntime(ticks) {
+        const totalMinutes = Math.round(Number(ticks || 0) / 600000000);
+        if (!totalMinutes) return '';
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        return hours ? `${hours}h ${minutes}m` : `${minutes}m`;
+    }
+
+    isDirectQueueItem(item) {
+        const type = String(item?.mediaType || '').toLowerCase();
+        return type === 'movie' || type === 'episode';
+    }
+
+    showQueueGroupPicker(option, sourceItem = null, previousOptions = {}) {
+        this.hideModal();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card queue-picker-modal';
+        modal.appendChild(this.textEl('h3', option.label));
+        modal.appendChild(this.textEl('p', 'Choose the movies, seasons, or episodes to add.', 'modal-subtitle'));
+
+        const list = document.createElement('div');
+        list.className = 'queue-picker-list';
+        option.items.forEach(item => {
+            const label = document.createElement('label');
+            label.className = 'queue-picker-item';
+            const input = document.createElement('input');
+            input.type = 'checkbox';
+            input.checked = true;
+            input.value = item.mediaId;
+            label.appendChild(input);
+            const text = document.createElement('span');
+            text.appendChild(this.textEl('strong', item.title));
+            text.appendChild(this.textEl('em', [item.mediaType, item.year].filter(Boolean).join(' • ') || 'Jellyfin item'));
+            label.appendChild(text);
+            list.appendChild(label);
+        });
+        modal.appendChild(list);
+
+        const actionRow = document.createElement('div');
+        actionRow.className = 'split-actions';
+        actionRow.appendChild(this.button('Add Selected', 'primary-command', () => {
+            const selected = [...list.querySelectorAll('input:checked')].map(input => option.items.find(item => item.mediaId === input.value)).filter(Boolean);
+            this.addMediaGroupToQueue(selected, `${selected.length} item${selected.length === 1 ? '' : 's'} added to queue.`);
+        }));
+        if (sourceItem) actionRow.appendChild(this.button('Back', 'secondary-command', () => this.showMediaDetails(sourceItem, previousOptions)));
+        actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
+        modal.appendChild(actionRow);
+
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
     }
 
     async queueGroupOptions(item) {
@@ -1042,13 +1261,48 @@ class JellTogetherApp {
             if (item.seriesId) await addOption(`series-${item.seriesId}`, `Add ${item.seriesName || 'series'}`, item.seriesId, 'Episode', 'Series added to queue.');
         } else if (type === 'series') {
             await addOption(`series-${item.mediaId}`, `Add ${item.title}`, item.mediaId, 'Episode', 'Series added to queue.');
+            const seasons = await this.fetchSeasonOptionsForSeries(item.mediaId, item.libraryId);
+            seasons.forEach(season => {
+                if (!options.some(option => option.key === season.key)) options.push(season);
+            });
         } else if (type === 'boxset') {
-            await addOption(`collection-${item.mediaId}`, `Add ${item.title}`, item.mediaId, 'Movie,Episode,Series', 'Collection added to queue.');
+            await addOption(`collection-${item.mediaId}`, `Add ${item.title}`, item.mediaId, 'Movie,Episode', 'Collection added to queue.');
         } else if (type === 'movie') {
             const collections = await this.findCollectionsForItem(item);
             collections.forEach(collection => options.push(collection));
         }
 
+        return options;
+    }
+
+    async fetchSeasonOptionsForSeries(seriesId, libraryId = '') {
+        const userId = this.currentJellyfinUserId();
+        if (!userId || !seriesId) return [];
+        const params = new URLSearchParams({
+            ParentId: seriesId,
+            Recursive: 'false',
+            IncludeItemTypes: 'Season',
+            SortBy: 'IndexNumber,SortName',
+            SortOrder: 'Ascending',
+            Fields: 'Overview,ParentId',
+            Limit: '100'
+        });
+        const data = await this.fetchJson(`/Users/${encodeURIComponent(userId)}/Items?${params}`);
+        const seasons = data.Items || data.items || [];
+        const options = [];
+        for (const season of seasons) {
+            const seasonId = season.Id || season.id || '';
+            const seasonName = season.Name || season.name || 'Season';
+            const items = await this.fetchQueueGroupItems(seasonId, 'Episode', libraryId);
+            if (items.length) {
+                options.push({
+                    key: `season-${seasonId}`,
+                    label: `Choose ${seasonName}`,
+                    items,
+                    successMessage: `${seasonName} added to queue.`
+                });
+            }
+        }
         return options;
     }
 
@@ -1061,7 +1315,7 @@ class JellTogetherApp {
             IncludeItemTypes: includeTypes,
             SortBy: 'ParentIndexNumber,IndexNumber,SortName',
             SortOrder: 'Ascending',
-            Fields: 'Overview,ParentId',
+            Fields: 'Overview,ParentId,SeriesId,SeasonId,RunTimeTicks,ProductionYear',
             Limit: '500'
         });
         const data = await this.fetchJson(`/Users/${encodeURIComponent(userId)}/Items?${params}`);
@@ -1078,7 +1332,9 @@ class JellTogetherApp {
                 mediaId: item.Id || item.id || '',
                 libraryId,
                 mediaType: type,
-                overview: item.Overview || item.overview || ''
+                overview: item.Overview || item.overview || '',
+                year: item.ProductionYear || item.productionYear || '',
+                parentId: item.ParentId || item.parentId || ''
             }];
         }
 
@@ -1087,7 +1343,13 @@ class JellTogetherApp {
             mediaId: item.Id || item.id || '',
             libraryId,
             mediaType: type,
-            overview: item.Overview || item.overview || ''
+            overview: item.Overview || item.overview || '',
+            year: item.ProductionYear || item.productionYear || '',
+            seriesId: item.SeriesId || item.seriesId || '',
+            seriesName: item.SeriesName || item.seriesName || '',
+            seasonId: item.SeasonId || item.seasonId || '',
+            seasonName: item.SeasonName || item.seasonName || '',
+            parentId: item.ParentId || item.parentId || ''
         }];
     }
 
@@ -1109,7 +1371,7 @@ class JellTogetherApp {
             for (const collection of collections) {
                 const collectionId = collection.Id || collection.id || '';
                 if (!collectionId) continue;
-                const members = await this.fetchQueueGroupItems(collectionId, 'Movie,Episode,Series', item.libraryId);
+                const members = await this.fetchQueueGroupItems(collectionId, 'Movie,Episode', item.libraryId);
                 if (members.some(member => member.mediaId === item.mediaId)) {
                     matches.push({
                         key: `collection-${collectionId}`,
@@ -1236,7 +1498,7 @@ class JellTogetherApp {
     }
 
     renderQueue() {
-        const dataStr = JSON.stringify(this.currentRoom.queue);
+        const dataStr = JSON.stringify({ queue: this.currentRoom.queue, page: this.queuePage });
         if (dataStr === this._lastQueueData) return;
         this._lastQueueData = dataStr;
 
@@ -1247,11 +1509,26 @@ class JellTogetherApp {
             return;
         }
 
-        this.currentRoom.queue.forEach(item => {
+        const totalPages = Math.max(1, Math.ceil(this.currentRoom.queue.length / this.queuePageSize));
+        this.queuePage = Math.min(Math.max(this.queuePage, 1), totalPages);
+        const start = (this.queuePage - 1) * this.queuePageSize;
+        const visibleItems = this.currentRoom.queue.slice(start, start + this.queuePageSize);
+
+        visibleItems.forEach((item, index) => {
             const row = document.createElement('div');
             row.className = 'queue-item';
             const content = document.createElement('div');
             content.className = 'queue-item-content';
+            content.role = 'button';
+            content.tabIndex = 0;
+            content.title = 'View media details';
+            content.onclick = () => this.showMediaDetails(item);
+            content.onkeydown = (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    this.showMediaDetails(item);
+                }
+            };
             content.appendChild(this.textEl('span', item.title));
             const meta = [`Added by ${item.addedBy || 'Unknown'}`];
             if (item.mediaType) meta.push(item.mediaType);
@@ -1280,6 +1557,26 @@ class JellTogetherApp {
 
             container.appendChild(row);
         });
+
+        if (totalPages > 1) {
+            const pager = document.createElement('div');
+            pager.className = 'queue-pager';
+            const previous = this.button('Previous', 'micro-command', () => this.setQueuePage(this.queuePage - 1));
+            previous.disabled = this.queuePage <= 1;
+            const next = this.button('Next', 'micro-command', () => this.setQueuePage(this.queuePage + 1));
+            next.disabled = this.queuePage >= totalPages;
+            pager.appendChild(previous);
+            pager.appendChild(this.textEl('span', `Page ${this.queuePage} of ${totalPages}`));
+            pager.appendChild(next);
+            container.appendChild(pager);
+        }
+    }
+
+    setQueuePage(page) {
+        const totalPages = Math.max(1, Math.ceil((this.currentRoom?.queue?.length || 0) / this.queuePageSize));
+        this.queuePage = Math.min(Math.max(page, 1), totalPages);
+        this._lastQueueData = null;
+        this.renderQueue();
     }
 
     renderPlayerState() {
@@ -1418,6 +1715,27 @@ class JellTogetherApp {
         } catch (e) {
             console.error("Queue Remove Error:", e);
             this.showToast("Failed to remove queue item.", 'error');
+        }
+    }
+
+    confirmClearQueue() {
+        if (!this.currentRoom || !this.canManage() || !this.currentRoom.queue.length) return;
+        this.showModal('Clear queue', [], [
+            { label: 'Clear Queue', danger: true, onClick: () => this.clearQueue() }
+        ]);
+    }
+
+    async clearQueue() {
+        if (!this.currentRoom || !this.canManage()) return;
+        try {
+            const resp = await this.request(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Queue`, { method: 'DELETE' });
+            if (!resp.ok) throw new Error("Queue clear failed");
+            this.queuePage = 1;
+            await this.refreshRoom();
+            this.showToast("Queue cleared.", 'success');
+        } catch (e) {
+            console.error("Queue Clear Error:", e);
+            this.showToast("Failed to clear queue.", 'error');
         }
     }
 
