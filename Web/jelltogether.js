@@ -8,6 +8,7 @@ class JellTogetherApp {
         this.allowParticipantQueueAdds = true;
         this.currentRoom = null;
         this.currentUser = "Unknown";
+        this.currentJellyfinMediaUserId = "";
         this.lastUpdate = new Date(0).toISOString();
         this.isPolling = false;
         this.pollTimer = null;
@@ -17,6 +18,7 @@ class JellTogetherApp {
         this.t = JELL_TOGETHER_I18N[this.lang];
         this.activeSidebarTab = 'chat';
         this.replyTarget = null;
+        this.authPromptShown = false;
 
         this._lastCinemaData = null;
         this._lastParticipantData = null;
@@ -139,6 +141,7 @@ class JellTogetherApp {
         try {
             const user = await this.fetchJson('/jelltogether/CurrentUser');
             this.currentUser = user.id || user.name || "Unknown";
+            this.currentJellyfinMediaUserId = user.mediaUserId || user.mediaUserID || "";
         } catch (e) {
             console.error("User Load Error:", e);
             this.showToast("Sign in to Jellyfin to use the companion.", 'error');
@@ -155,17 +158,19 @@ class JellTogetherApp {
         return resp.json();
     }
 
-    request(url, options = {}) {
+    async request(url, options = {}) {
         const headers = new Headers(options.headers || {});
         const token = this.getAccessToken();
         if (token && !headers.has('X-Emby-Token')) {
             headers.set('X-Emby-Token', token);
         }
-        return fetch(url, {
+        const response = await fetch(url, {
             ...options,
             headers,
             credentials: 'same-origin'
         });
+        if (response.status === 401) this.showSignInPrompt();
+        return response;
     }
 
     getAccessToken() {
@@ -209,6 +214,35 @@ class JellTogetherApp {
         }
 
         return "";
+    }
+
+    showSignInPrompt() {
+        if (this.authPromptShown) return;
+        this.authPromptShown = true;
+        this.showToast("Sign in to Jellyfin to use JellTogether.", 'error');
+
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card';
+        modal.appendChild(this.textEl('h3', 'Sign in required'));
+        modal.appendChild(this.textEl('p', 'Open Jellyfin, sign in, then return to this companion link.', 'modal-subtitle'));
+        const actionRow = document.createElement('div');
+        actionRow.className = 'split-actions';
+        actionRow.appendChild(this.button('Open Jellyfin Sign In', 'primary-command', () => this.openJellyfinSignIn()));
+        actionRow.appendChild(this.button('Dismiss', 'secondary-command', () => this.hideModal()));
+        modal.appendChild(actionRow);
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        overlay.appendChild(modal);
+        this.hideModal();
+        document.body.appendChild(overlay);
+    }
+
+    openJellyfinSignIn() {
+        const returnUrl = window.location.href;
+        window.location.href = `${window.location.origin}/web/index.html?returnUrl=${encodeURIComponent(returnUrl)}`;
     }
 
     jsonPost(url, value) {
@@ -1028,7 +1062,10 @@ class JellTogetherApp {
 
     currentJellyfinUserId() {
         const apiClient = window.ApiClient;
-        return apiClient?._serverInfo?.UserId || apiClient?.serverInfo?.UserId || apiClient?._currentUser?.Id || apiClient?._currentUser?.id || '';
+        const apiUserId = apiClient?._serverInfo?.UserId || apiClient?.serverInfo?.UserId || apiClient?._currentUser?.Id || apiClient?._currentUser?.id || '';
+        if (apiUserId) return apiUserId;
+        if (this.currentJellyfinMediaUserId) return this.currentJellyfinMediaUserId;
+        return this.currentUser && this.currentUser !== 'Unknown' ? this.currentUser : '';
     }
 
     async addMediaToQueue(item) {
@@ -1161,10 +1198,12 @@ class JellTogetherApp {
                 const voteLabel = item.upvotes?.includes(this.currentUser) ? `Voted (${item.upvotes.length})` : `Vote (${item.upvotes?.length || 0})`;
                 actions.appendChild(this.button(voteLabel, item.upvotes?.includes(this.currentUser) ? 'micro-command active' : 'micro-command', () => this.toggleQueueVote(item.id)));
             }
-            if (this.canManage()) {
+            if (this.canControlPlayback()) {
                 if (item.mediaId) {
                     actions.appendChild(this.button('Start', 'micro-command primary', () => this.showStartWatchPartyModal(item)));
                 }
+            }
+            if (this.canManage()) {
                 actions.appendChild(this.button('Up', 'micro-command', () => this.moveQueueItem(item.id, -1)));
                 actions.appendChild(this.button('Down', 'micro-command', () => this.moveQueueItem(item.id, 1)));
             }
@@ -1186,7 +1225,7 @@ class JellTogetherApp {
     }
 
     async showStartWatchPartyModal(item) {
-        if (!item?.mediaId || !this.currentRoom || !this.canManage()) return;
+        if (!item?.mediaId || !this.currentRoom || !this.canControlPlayback()) return;
         this.hideModal();
 
         const overlay = document.createElement('div');
@@ -1978,23 +2017,32 @@ class JellTogetherApp {
         return this.canManage() || (this.allowParticipantQueueAdds && (!perms || perms.canAddToQueue !== false));
     }
 
+    canControlPlayback() {
+        if (!this.currentRoom) return false;
+        if (this.canManage()) return true;
+        if (this.currentRoom.isHostOnlyControl) return false;
+        const perms = this.currentRoom.permissions?.[this.currentUser];
+        return !perms || perms.canControlPlayback !== false;
+    }
+
     async generateAdvancedInvite() {
         this.showModal('Invite settings', [
             { id: 'canChat', type: 'checkbox', label: 'Allow chat', checked: true },
             { id: 'canControl', type: 'checkbox', label: 'Allow playback control', checked: true },
+            { id: 'canAddToQueue', type: 'checkbox', label: 'Allow queue adds', checked: true },
             { id: 'hours', type: 'number', label: 'Hours valid, 0 for no expiration', value: '24', min: '0' }
         ], [
             { label: 'Generate', primary: true, onClick: (values) => this.createAdvancedInvite(values) }
         ]);
     }
 
-    async createAdvancedInvite({ canChat, canControl, hours }) {
+    async createAdvancedInvite({ canChat, canControl, canAddToQueue, hours }) {
         const hoursValid = parseInt(hours || "24", 10);
         try {
             const resp = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Invitations`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ canChat, canControl, hoursValid: Number.isNaN(hoursValid) ? 24 : hoursValid, maxUses: 0 })
+                body: JSON.stringify({ canChat, canControl, canAddToQueue, hoursValid: Number.isNaN(hoursValid) ? 24 : hoursValid, maxUses: 0 })
             });
             this.showInviteLink(resp.code);
         } catch (e) {

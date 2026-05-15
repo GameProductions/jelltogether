@@ -1,5 +1,15 @@
 # JellTogether Changelog
 
+## [2026-05-15] - Permission and settings fixes
+- Made playback-control permissions apply to Start Watch Party.
+- Kept queue reordering scoped to hosts and co-hosts so API permissions match the UI.
+- Added queue-add permissions to generated invite rules.
+- Added standalone companion sign-in guidance when Jellyfin authentication is missing.
+- Added current-user fallbacks for standalone media search and library loading.
+- Added clipboard failure handling to the global settings companion URL pill.
+- Made queue-add denials return errors instead of appearing successful.
+- Added the companion token fallback to global settings and removed stale room guidance.
+
 ## [2026-05-15] - Android TV playback targeting
 - Added a global option for Android TV playback targeting.
 - Mark Android TV sessions in the Start Watch Party target picker and allow remote-start targeting when the client advertises remote control.

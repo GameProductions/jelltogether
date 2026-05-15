@@ -22,7 +22,9 @@ class JellTogetherSettingsApp {
         const headers = new Headers(options.headers || {});
         const token = this.getAccessToken();
         if (token && !headers.has('X-Emby-Token')) headers.set('X-Emby-Token', token);
-        return fetch(url, { ...options, headers, credentials: 'same-origin' });
+        const response = await fetch(url, { ...options, headers, credentials: 'same-origin' });
+        if (response.status === 401) this.toast('Sign in to Jellyfin as an administrator to manage JellTogether settings.', 'error');
+        return response;
     }
 
     async fetchJson(url, options = {}) {
@@ -42,6 +44,32 @@ class JellTogetherSettingsApp {
 
         for (const candidate of candidates) {
             if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+        }
+
+        try {
+            for (let i = 0; i < localStorage.length; i++) {
+                const key = localStorage.key(i);
+                const value = key ? localStorage.getItem(key) : null;
+                if (!value || !value.includes('AccessToken')) continue;
+
+                const token = this.findAccessToken(JSON.parse(value));
+                if (token) return token;
+            }
+        } catch (e) {
+            console.error('JellTogether settings token lookup failed:', e);
+        }
+
+        return '';
+    }
+
+    findAccessToken(value) {
+        if (!value || typeof value !== 'object') return '';
+        if (typeof value.AccessToken === 'string' && value.AccessToken.trim()) return value.AccessToken.trim();
+        if (typeof value.accessToken === 'string' && value.accessToken.trim()) return value.accessToken.trim();
+
+        for (const child of Object.values(value)) {
+            const token = this.findAccessToken(child);
+            if (token) return token;
         }
 
         return '';
@@ -87,7 +115,7 @@ class JellTogetherSettingsApp {
             console.warn('Media folder lookup failed, falling back to user views:', e);
         }
 
-        const userId = this.currentUserId();
+        const userId = await this.currentUserId();
         if (!userId) throw new Error('Missing current user id.');
         const result = await this.fetchJson(`/Users/${encodeURIComponent(userId)}/Views`);
         return this.normalizeLibraries(result.Items || result.items || [], 'user view');
@@ -111,9 +139,18 @@ class JellTogetherSettingsApp {
         return `/Items/${encodeURIComponent(id)}/Images/Primary?fillHeight=96&fillWidth=96&quality=90`;
     }
 
-    currentUserId() {
+    async currentUserId() {
         const apiClient = window.ApiClient;
-        return apiClient?._serverInfo?.UserId || apiClient?.serverInfo?.UserId || apiClient?._currentUser?.Id || apiClient?._currentUser?.id || '';
+        const apiUserId = apiClient?._serverInfo?.UserId || apiClient?.serverInfo?.UserId || apiClient?._currentUser?.Id || apiClient?._currentUser?.id || '';
+        if (apiUserId) return apiUserId;
+
+        try {
+            const user = await this.fetchJson('/jelltogether/CurrentUser');
+            return user.mediaUserId || user.mediaUserID || user.id || user.name || '';
+        } catch (e) {
+            console.warn('Current user lookup failed:', e);
+            return '';
+        }
     }
 
     renderLibraries() {
@@ -166,8 +203,13 @@ class JellTogetherSettingsApp {
             this.toast('Nothing to copy yet.', 'error');
             return;
         }
-        await navigator.clipboard.writeText(value);
-        this.toast('Companion URL copied.', 'success');
+        try {
+            await navigator.clipboard.writeText(value);
+            this.toast('Companion URL copied.', 'success');
+        } catch (e) {
+            console.error('Companion URL copy failed:', e);
+            this.toast('Copy failed. Select the companion URL and copy it manually.', 'error');
+        }
     }
 
     async save() {

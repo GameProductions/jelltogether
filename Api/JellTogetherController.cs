@@ -26,6 +26,7 @@ namespace JellTogether.Plugin.Api
     {
         public bool CanChat { get; set; } = true;
         public bool CanControl { get; set; } = true;
+        public bool CanAddToQueue { get; set; } = true;
         public int HoursValid { get; set; } = 24;
         public int MaxUses { get; set; } = 0;
     }
@@ -142,7 +143,13 @@ namespace JellTogether.Plugin.Api
         [HttpGet("CurrentUser")]
         public ActionResult<object> GetCurrentUser()
         {
-            return Ok(new { id = CurrentUserId, name = CurrentUserId });
+            var mediaUserGuid = ControllerUserGuid();
+            return Ok(new
+            {
+                id = CurrentUserId,
+                name = CurrentUserId,
+                mediaUserId = mediaUserGuid == Guid.Empty ? CurrentUserId : mediaUserGuid.ToString("D")
+            });
         }
 
         [HttpGet("Settings")]
@@ -348,7 +355,7 @@ namespace JellTogether.Plugin.Api
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
             if (!room.Participants.Contains(CurrentUserId)) return Forbid();
-            if (!CanManage(room) && Plugin.Instance?.Configuration.AllowParticipantQueueAdds == false) return Forbid();
+            if (!CanAddToQueue(room)) return Forbid();
 
             var request = ParseQueueItemRequest(payload);
             var allowedLibraryIds = Plugin.Instance?.Configuration.EnabledLibraryIds ?? new List<string>();
@@ -361,8 +368,9 @@ namespace JellTogether.Plugin.Api
 
             var title = request.Title;
             if (string.IsNullOrWhiteSpace(title)) return BadRequest("Queue title is required.");
-            _roomManager.AddToQueue(roomId, title, CurrentUserId, request.MediaId, request.LibraryId, request.MediaType, request.Overview);
-            return Ok();
+            return _roomManager.AddToQueue(roomId, title, CurrentUserId, request.MediaId, request.LibraryId, request.MediaType, request.Overview)
+                ? Ok()
+                : Forbid();
         }
 
         [HttpPost("Rooms/{roomId}/Queue/{itemId}/Vote")]
@@ -410,7 +418,7 @@ namespace JellTogether.Plugin.Api
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
-            if (!CanManage(room)) return Forbid();
+            if (!CanControlPlayback(room)) return Forbid();
 
             var item = room.Queue.FirstOrDefault(queueItem => queueItem.Id == itemId);
             if (item == null) return NotFound();
@@ -525,7 +533,12 @@ namespace JellTogether.Plugin.Api
             
             if (!isAdmin && !room.AllowParticipantInvites) return Forbid();
 
-            var perms = new ParticipantPermissions { CanChat = request.CanChat, CanControlPlayback = request.CanControl };
+            var perms = new ParticipantPermissions
+            {
+                CanChat = request.CanChat,
+                CanControlPlayback = request.CanControl,
+                CanAddToQueue = request.CanAddToQueue
+            };
             var invite = _roomManager.CreateInvite(roomId, CurrentUserId, perms, request.HoursValid, request.MaxUses);
             return Ok(invite);
         }
@@ -615,10 +628,17 @@ namespace JellTogether.Plugin.Api
             if (room == null) return NotFound();
 
             var callerId = CurrentUserId;
-            // Only Owner or Co-Host can change permissions
             if (room.OwnerId != callerId && !room.CoHostIds.Contains(callerId))
             {
                 return Forbid();
+            }
+
+            if (room.OwnerId != callerId)
+            {
+                var existingPermissions = room.Permissions.TryGetValue(userId, out var existing)
+                    ? existing
+                    : new ParticipantPermissions();
+                permissions.CanManageParticipants = existingPermissions.CanManageParticipants;
             }
 
             _roomManager.SetUserPermissions(roomId, userId, permissions.CanChat, permissions.CanControlPlayback, permissions.CanAddToQueue, permissions.CanManageParticipants);
@@ -883,6 +903,23 @@ namespace JellTogether.Plugin.Api
             if (CanManage(room)) return true;
             return room.Permissions.TryGetValue(CurrentUserId, out var permissions) &&
                 permissions.CanManageParticipants;
+        }
+
+        private bool CanControlPlayback(JellTogetherRoom room)
+        {
+            if (CanManage(room)) return true;
+            if (!room.Participants.Contains(CurrentUserId) || room.IsHostOnlyControl) return false;
+            return !room.Permissions.TryGetValue(CurrentUserId, out var permissions) ||
+                permissions.CanControlPlayback;
+        }
+
+        private bool CanAddToQueue(JellTogetherRoom room)
+        {
+            if (CanManage(room)) return true;
+            if (!room.Participants.Contains(CurrentUserId)) return false;
+            if (Plugin.Instance?.Configuration.AllowParticipantQueueAdds == false) return false;
+            return !room.Permissions.TryGetValue(CurrentUserId, out var permissions) ||
+                permissions.CanAddToQueue;
         }
 
         private JellTogetherRoom RoomForUser(JellTogetherRoom room)

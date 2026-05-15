@@ -741,31 +741,34 @@ namespace JellTogether.Plugin.Services
             catch { }
         }
 
-        public void AddToQueue(string roomId, string title, string userId, string mediaId = "", string libraryId = "", string mediaType = "", string overview = "")
+        public bool AddToQueue(string roomId, string title, string userId, string mediaId = "", string libraryId = "", string mediaType = "", string overview = "")
         {
             lock (_roomLock)
             {
-                if (_rooms.TryGetValue(roomId, out var room) && room.Participants.Contains(userId))
+                if (!_rooms.TryGetValue(roomId, out var room) || !room.Participants.Contains(userId))
                 {
-                    if (room.Permissions.TryGetValue(userId, out var perm) &&
-                        !perm.CanAddToQueue &&
-                        room.OwnerId != userId &&
-                        !room.CoHostIds.Contains(userId))
-                    {
-                        return;
-                    }
-
-                    room.Queue.Add(new QueueItem
-                    {
-                        Title = TrimToLimit(title, 200),
-                        MediaId = TrimToLimit(mediaId, 64),
-                        LibraryId = TrimToLimit(libraryId, 64),
-                        MediaType = TrimToLimit(mediaType, 40),
-                        Overview = TrimToLimit(overview, 260),
-                        AddedBy = userId
-                    });
-                    Touch(room);
+                    return false;
                 }
+
+                if (room.Permissions.TryGetValue(userId, out var perm) &&
+                    !perm.CanAddToQueue &&
+                    room.OwnerId != userId &&
+                    !room.CoHostIds.Contains(userId))
+                {
+                    return false;
+                }
+
+                room.Queue.Add(new QueueItem
+                {
+                    Title = TrimToLimit(title, 200),
+                    MediaId = TrimToLimit(mediaId, 64),
+                    LibraryId = TrimToLimit(libraryId, 64),
+                    MediaType = TrimToLimit(mediaType, 40),
+                    Overview = TrimToLimit(overview, 260),
+                    AddedBy = userId
+                });
+                Touch(room);
+                return true;
             }
         }
 
