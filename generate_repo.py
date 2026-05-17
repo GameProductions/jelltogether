@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 # --- CONFIGURATION ---
 GITHUB_USER = "GameProductions"
 REPO_NAME = "jelltogether"
-VERSION = "1.2.15.0"
+VERSION = "1.2.16.0"
 TARGET_ABI = "10.11.8.0"
 GUID = "f9e1e2d3-a4b5-4c6d-8e9f-0a1b2c3d4e5f"
 # ---------------------
@@ -19,15 +19,26 @@ ZIP_NAME = f"jelltogether_{VERSION}.zip"
 ZIP_PATH = os.path.join(BASE_DIR, ZIP_NAME)
 REPO_JSON_PATH = os.path.join(BASE_DIR, "repository.json")
 MANIFEST_JSON_PATH = os.path.join(BASE_DIR, "manifest.json")
-CHANGELOG = """Add theater screen controls, connected-server switching, profile-aware seating details, and full Jellyfin revision history.
+CHANGELOG = """Fix HTTP mixed content issues on secure HTTPS Jellyfin sites behind reverse proxies.
+
+- Respect the X-Forwarded-Proto header on the backend to correctly identify HTTPS scheme behind SSL-terminating reverse proxies.
+- Dynamically upgrade matching http:// host URLs to https:// in frontend normalizeBaseUrl when page protocol is HTTPS."""
+
+HISTORICAL_RELEASES = [
+    {
+        "version": "1.2.15.0",
+        "changelog": """Add theater screen controls, connected-server switching, profile-aware seating details, and full Jellyfin revision history.
 
 - Turn the theater screen into a host/co-host control surface for queued playback, media search, and playback targets.
 - Show the connected Jellyfin server in the companion header with a manual server update option.
 - Fix profile images and layout in seat and participant detail views.
 - Remove the inline What's New card while keeping the changelog modal available.
-- Publish the full JellTogether release history in Jellyfin repository metadata."""
-
-HISTORICAL_RELEASES = [
+- Publish the full JellTogether release history in Jellyfin repository metadata.""",
+        "targetAbi": TARGET_ABI,
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.15.0/jelltogether_1.2.15.0.zip",
+        "checksum": "393CF8FF2D183BF7F90A68FEA02012B0",
+        "timestamp": "2026-05-17T21:12:23Z",
+    },
     {
         "version": "1.2.14.0",
         "changelog": """Fix standalone companion Jellyfin server detection and API routing.

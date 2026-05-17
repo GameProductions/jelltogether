@@ -9,6 +9,14 @@
     "category": "Social",
     "versions": [
       {
+        "version": "1.2.16.0",
+        "changelog": "Fix HTTP mixed content issues on secure HTTPS Jellyfin sites behind reverse proxies.\n\n- Respect the X-Forwarded-Proto header on the backend to correctly identify HTTPS scheme behind SSL-terminating reverse proxies.\n- Dynamically upgrade matching http:// host URLs to https:// in frontend normalizeBaseUrl when page protocol is HTTPS.",
+        "targetAbi": "10.11.8.0",
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.16.0/jelltogether_1.2.16.0.zip",
+        "checksum": "B2AE6A5CF2DF64284CE7911829DB4D6C",
+        "timestamp": "2026-05-17T21:16:58Z"
+      },
+      {
         "version": "1.2.15.0",
         "changelog": "Add theater screen controls, connected-server switching, profile-aware seating details, and full Jellyfin revision history.\n\n- Turn the theater screen into a host/co-host control surface for queued playback, media search, and playback targets.\n- Show the connected Jellyfin server in the companion header with a manual server update option.\n- Fix profile images and layout in seat and participant detail views.\n- Remove the inline What's New card while keeping the changelog modal available.\n- Publish the full JellTogether release history in Jellyfin repository metadata.",
         "targetAbi": "10.11.8.0",
