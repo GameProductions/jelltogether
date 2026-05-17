@@ -159,7 +159,7 @@ namespace JellTogether.Plugin.Api
             return Ok(new
             {
                 publicJellyfinUrl = NormalizeBaseUrl(config?.PublicJellyfinUrl),
-                serverUrl = NormalizeBaseUrl(config?.PublicJellyfinUrl),
+                serverUrl = RequestServerUrl(),
                 publicCompanionUrl = NormalizeBaseUrl(config?.PublicCompanionUrl),
                 enabledLibraryIds = config?.EnabledLibraryIds ?? new List<string>(),
                 allowQueueVotingByDefault = config?.AllowQueueVotingByDefault ?? true,
@@ -940,6 +940,7 @@ namespace JellTogether.Plugin.Api
         private JellTogetherRoom RoomForUser(JellTogetherRoom room)
         {
             room.DiscordBotToken = null;
+            room.ParticipantProfiles = ParticipantProfilesForRoom(room);
 
             if (room.OwnerId != CurrentUserId && !room.CoHostIds.Contains(CurrentUserId))
             {
@@ -948,6 +949,25 @@ namespace JellTogether.Plugin.Api
             }
 
             return room;
+        }
+
+        private Dictionary<string, ParticipantProfile> ParticipantProfilesForRoom(JellTogetherRoom room)
+        {
+            return room.Participants
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    participant => participant,
+                    participant =>
+                    {
+                        var session = _sessionManager.Sessions.FirstOrDefault(activeSession => SessionMatchesUser(activeSession, participant));
+                        return new ParticipantProfile
+                        {
+                            UserId = participant,
+                            DisplayName = session?.UserName ?? participant,
+                            MediaUserId = session?.UserId.ToString("D") ?? (Guid.TryParse(participant, out var participantGuid) ? participantGuid.ToString("D") : string.Empty)
+                        };
+                    },
+                    StringComparer.OrdinalIgnoreCase);
         }
 
         private List<PlaybackTargetDto> PlaybackTargetsForRoom(JellTogetherRoom room)
@@ -1124,9 +1144,7 @@ namespace JellTogether.Plugin.Api
             var queryScript = string.IsNullOrWhiteSpace(code)
                 ? string.Empty
                 : $"<script>window.JELL_TOGETHER_INVITE_CODE = {System.Text.Json.JsonSerializer.Serialize(code.Trim())};</script>";
-            var configuredJellyfin = NormalizeBaseUrl(Plugin.Instance?.Configuration.PublicJellyfinUrl);
-            var serverUrl = string.IsNullOrWhiteSpace(configuredJellyfin) ? $"{Request.Scheme}://{Request.Host}{basePath}" : configuredJellyfin;
-            var serverScript = $"<script>window.JELL_TOGETHER_SERVER_URL = {System.Text.Json.JsonSerializer.Serialize(serverUrl)};</script>";
+            var serverScript = $"<script>window.JELL_TOGETHER_SERVER_URL = {System.Text.Json.JsonSerializer.Serialize(RequestServerUrl())};</script>";
 
             var html = $@"<!DOCTYPE html>
 <html lang=""en"">
@@ -1200,6 +1218,12 @@ namespace JellTogether.Plugin.Api
         private static string WebConfigurationPageUrl(string baseUrl, string? code)
         {
             return AddInviteCode($"{NormalizeBaseUrl(baseUrl)}/jelltogether/Companion", code);
+        }
+
+        private string RequestServerUrl()
+        {
+            var basePath = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
+            return NormalizeBaseUrl($"{Request.Scheme}://{Request.Host}{basePath}");
         }
 
         private static string PluginVersion()

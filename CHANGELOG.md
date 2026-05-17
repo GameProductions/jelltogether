@@ -1,5 +1,12 @@
 # JellTogether Changelog
 
+## [2026-05-17] - Theater controls and full revision history
+- Turned the theater screen into a host/co-host control surface for queued playback, media search, and playback targets.
+- Added a connected-server indicator with manual server switching.
+- Fixed profile images and layout in seat and participant detail views.
+- Removed the inline What's New card while keeping the changelog modal available.
+- Published the full JellTogether release history in Jellyfin repository metadata.
+
 ## [2026-05-17] - Companion server detection
 - Added explicit Jellyfin server URL bootstrap for standalone companion pages.
 - Added a Jellyfin server URL field to standalone sign-in when the companion cannot infer the server.

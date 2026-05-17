@@ -8,13 +8,14 @@
                 <div class="logo">
                     <img src="configurationpage?name=logo.png" alt="" aria-hidden="true" onerror="this.onerror=null;this.src='../logo.png';">
                     <span>JellTogether</span>
-                    <em class="version-badge" data-plugin-version>v1.2.14.0</em>
+                    <em class="version-badge" data-plugin-version>v1.2.15.0</em>
                 </div>
                 <div class="user-profile">
                     <div class="user-profile-copy">
                         <span class="profile-label">Signed in</span>
                         <span id="display-name">Loading...</span>
                     </div>
+                    <button id="connected-server-pill" class="server-pill" onclick="app.showServerConnectionModal()">Server: Detecting...</button>
                     <button id="btn-auth-action" class="micro-command" onclick="app.handleAuthAction()">Sign Out</button>
                 </div>
             </header>
@@ -39,10 +40,6 @@
                         <button class="secondary-command" onclick="app.joinByCode()">Join</button>
                     </div>
 
-                    <section id="changelog-panel" class="changelog-panel">
-                        <div class="loading">Loading release notes...</div>
-                    </section>
-
                     <div id="room-grid" class="room-grid">
                         <div class="loading">Searching for active parties...</div>
                     </div>
@@ -64,12 +61,12 @@
                     </div>
                 </div>
 
-                <div class="player-placeholder">
+                <button type="button" class="player-placeholder" id="theater-screen" onclick="app.showTheaterControls()" aria-label="Open theater controls">
                     <div class="player-frame">
                         <div class="play-mark"></div>
                         <span id="now-playing-title">No synced media selected</span>
                     </div>
-                </div>
+                </button>
 
                 <div class="cinema-seats" id="cinema-seats"></div>
 

@@ -24,6 +24,7 @@ namespace JellTogether.Plugin.Services
         public List<string> Participants { get; set; } = new();
         public List<string> PendingParticipantIds { get; set; } = new();
         public List<string> BannedParticipantIds { get; set; } = new();
+        public Dictionary<string, ParticipantProfile> ParticipantProfiles { get; set; } = new();
         public Dictionary<string, int> CinemaSeats { get; set; } = new(); // UserId -> SeatIndex
         public List<JellTogetherInvite> Invitations { get; set; } = new();
         public List<QueueItem> Queue { get; set; } = new();
@@ -113,6 +114,13 @@ namespace JellTogether.Plugin.Services
         public bool CanControlPlayback { get; set; } = true;
         public bool CanAddToQueue { get; set; } = true;
         public bool CanManageParticipants { get; set; } = false;
+    }
+
+    public class ParticipantProfile
+    {
+        public string UserId { get; set; } = string.Empty;
+        public string DisplayName { get; set; } = string.Empty;
+        public string MediaUserId { get; set; } = string.Empty;
     }
 
     public enum JoinRoomResult

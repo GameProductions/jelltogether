@@ -165,13 +165,15 @@ class JellTogetherSettingsApp {
         this.libraries.forEach(library => {
             const label = document.createElement('label');
             label.className = 'library-option';
-            label.innerHTML = `<span class="library-thumb" aria-hidden="true"></span><span class="library-copy"><strong></strong><em></em></span>`;
             const checkbox = document.createElement('input');
             checkbox.type = 'checkbox';
             checkbox.value = library.id;
             checkbox.checked = selected.size === 0 || selected.has(library.id);
-            label.prepend(checkbox);
-            const thumb = label.querySelector('.library-thumb');
+            label.appendChild(checkbox);
+
+            const thumb = document.createElement('span');
+            thumb.className = 'library-thumb';
+            thumb.setAttribute('aria-hidden', 'true');
             if (library.imageUrl) {
                 const image = document.createElement('img');
                 image.alt = '';
@@ -181,8 +183,13 @@ class JellTogetherSettingsApp {
                 image.onerror = () => image.remove();
                 thumb.appendChild(image);
             }
-            label.querySelector('strong').textContent = library.name;
-            label.querySelector('em').textContent = library.type;
+
+            const copy = document.createElement('span');
+            copy.className = 'library-copy';
+            copy.appendChild(this.textEl('strong', library.name));
+            copy.appendChild(this.textEl('em', library.type));
+            label.appendChild(thumb);
+            label.appendChild(copy);
             container.appendChild(label);
         });
     }
