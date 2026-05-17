@@ -1961,7 +1961,7 @@ class JellTogetherApp {
     renderPlaybackTargetSummary(container, targets) {
         this.clear(container);
         if (!targets.length) {
-            container.appendChild(this.textEl('div', 'No active Jellyfin sessions found. Open Jellyfin on a room device, then try again.', 'loading'));
+            this.renderTargetHelpInstructions(container);
             return;
         }
 
@@ -1984,7 +1984,7 @@ class JellTogetherApp {
         this.clear(container);
         const eligible = targets.filter(target => target.canStartPlayback || (target.isActive && target.supportsRemoteControl && target.supportsMediaControl));
         if (!eligible.length) {
-            container.appendChild(this.textEl('div', 'No active controllable Jellyfin sessions found for people in this room. Open Jellyfin on Android TV or another client, then try again.', 'loading'));
+            this.renderTargetHelpInstructions(container);
             startButton.disabled = true;
             return;
         }
@@ -2018,6 +2018,42 @@ class JellTogetherApp {
         return [...container.querySelectorAll('input[type="checkbox"]:checked')]
             .map(input => input.value)
             .filter(Boolean);
+    }
+
+    renderTargetHelpInstructions(container) {
+        this.clear(container);
+        const card = document.createElement('div');
+        card.className = 'target-help-card glass-card';
+        
+        const title = this.textEl('h4', '📺 How to Connect Your Player');
+        card.appendChild(title);
+        
+        const desc = this.textEl('p', "JellTogether uses Jellyfin's remote-control feature to sync playback. To connect a device, follow these quick steps:");
+        card.appendChild(desc);
+        
+        const list = document.createElement('ul');
+        list.className = 'help-list';
+        
+        const steps = [
+            '<strong>Launch Jellyfin</strong>: Open the official Jellyfin app on your TV, desktop player, or a browser tab.',
+            '<strong>Match Your Account</strong>: Verify that the device is logged into the exact same Jellyfin user account.',
+            '<strong>Keep Active</strong>: Ensure the Jellyfin app is open and running in the foreground on your screen.',
+            '<strong>Wake Connection</strong>: If a device is not showing up, wake it up by navigating to the home screen or playing a short video.',
+            '<strong>Android TV</strong>: Enable Android TV targets in the JellTogether dashboard settings.'
+        ];
+        
+        steps.forEach(step => {
+            const li = document.createElement('li');
+            li.innerHTML = step;
+            list.appendChild(li);
+        });
+        
+        card.appendChild(list);
+        
+        const note = this.textEl('div', '🔄 Connection list updates automatically every 5 seconds.', 'help-note');
+        card.appendChild(note);
+        
+        container.appendChild(card);
     }
 
     async startWatchParty(itemId, targetSessionIds) {
