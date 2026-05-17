@@ -400,6 +400,7 @@ def write_package_manifest(path):
 
 def main():
     try:
+        os.chdir(BASE_DIR)
         # 1. Build the project
         run_command("dotnet publish -c Release")
         
