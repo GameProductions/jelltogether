@@ -9,12 +9,12 @@
     "category": "Social",
     "versions": [
       {
-        "version": "1.2.13.0",
-        "changelog": "Add companion changelog, version badges, and group queue select-all controls.",
+        "version": "1.2.14.0",
+        "changelog": "Fix standalone companion Jellyfin server detection and API routing.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.13.0/jelltogether_1.2.13.0.zip",
-        "checksum": "4FD90C89CB5E01C08435A134729B60C6",
-        "timestamp": "2026-05-17T10:53:29Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.14.0/jelltogether_1.2.14.0.zip",
+        "checksum": "AA8E8431B35B049B6936AB988196C98E",
+        "timestamp": "2026-05-17T15:11:08Z"
       }
     ]
   }

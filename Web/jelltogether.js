@@ -1,12 +1,13 @@
 class JellTogetherApp {
     constructor() {
+        this.serverUrl = this.initialServerUrl();
         this.publicJellyfinUrl = "";
         this.publicCompanionOrigin = "";
         this.canSavePublicAccessSettings = false;
         this.enabledLibraryIds = [];
         this.allowQueueVotingByDefault = true;
         this.allowParticipantQueueAdds = true;
-        this.pluginVersion = "1.2.13.0";
+        this.pluginVersion = "1.2.14.0";
         this.changelog = [];
         this.currentRoom = null;
         this.currentUser = "Unknown";
@@ -62,9 +63,33 @@ class JellTogetherApp {
         return new URLSearchParams(hashQuery).get('code');
     }
 
+    initialServerUrl() {
+        const injected = this.normalizeBaseUrl(window.JELL_TOGETHER_SERVER_URL || "");
+        if (injected) return injected;
+        const stored = this.normalizeBaseUrl(localStorage.getItem('jelltogether-server-url') || "");
+        if (stored) return stored;
+        return this.isLikelyJellyfinOrigin() ? window.location.origin : "";
+    }
+
+    isLikelyJellyfinOrigin() {
+        return window.location.pathname.startsWith('/jelltogether') ||
+            window.location.pathname.startsWith('/web/') ||
+            window.location.pathname.includes('configurationpage');
+    }
+
+    normalizeBaseUrl(value) {
+        return (value || "").trim().replace(/\/+$/, '');
+    }
+
+    apiUrl(url) {
+        if (!url || /^https?:\/\//i.test(url)) return url;
+        if (!url.startsWith('/')) return url;
+        return this.serverUrl ? `${this.serverUrl}${url}` : url;
+    }
+
     companionUrl(code = null) {
         const base = this.publicCompanionOrigin ||
-            (this.publicJellyfinUrl ? `${this.publicJellyfinUrl.replace(/\/+$/, '')}/jelltogether/Companion` : `${window.location.origin}/jelltogether/Companion`);
+            (this.publicJellyfinUrl ? `${this.normalizeBaseUrl(this.publicJellyfinUrl)}/jelltogether/Companion` : `${window.location.origin}/jelltogether/Companion`);
         return this.addInviteCode(base, code);
     }
 
@@ -79,6 +104,8 @@ class JellTogetherApp {
         try {
             const settings = await this.fetchJson('/jelltogether/Settings');
             this.publicJellyfinUrl = settings.publicJellyfinUrl || "";
+            this.serverUrl = this.normalizeBaseUrl(this.publicJellyfinUrl || settings.serverUrl || this.serverUrl);
+            if (this.serverUrl) localStorage.setItem('jelltogether-server-url', this.serverUrl);
             this.publicCompanionOrigin = settings.publicCompanionUrl || "";
             this.enabledLibraryIds = settings.enabledLibraryIds || [];
             this.allowQueueVotingByDefault = settings.allowQueueVotingByDefault !== false;
@@ -135,7 +162,7 @@ class JellTogetherApp {
     }
 
     generatedCompanionUrl(value = this.publicJellyfinUrl) {
-        const base = (value || "").trim().replace(/\/+$/, '');
+        const base = this.normalizeBaseUrl(value || "");
         return base ? `${base}/jelltogether/Companion` : "";
     }
 
@@ -260,7 +287,8 @@ class JellTogetherApp {
         if (token && !headers.has('X-Emby-Token')) {
             headers.set('X-Emby-Token', token);
         }
-        const response = await fetch(url, {
+        const targetUrl = this.apiUrl(url);
+        const response = await fetch(targetUrl, {
             ...options,
             headers,
             credentials: 'same-origin'
@@ -341,15 +369,27 @@ class JellTogetherApp {
     }
 
     showJellyfinSignInModal() {
-        this.showModal('Sign in to Jellyfin', [
+        const fields = [];
+        if (!this.serverUrl || !this.isLikelyJellyfinOrigin()) {
+            fields.push({ id: 'serverUrl', type: 'url', label: 'Jellyfin server URL', placeholder: 'https://jellyfin.example.com', value: this.serverUrl || this.publicJellyfinUrl || '' });
+        }
+        fields.push(
             { id: 'username', type: 'text', label: 'Username', placeholder: 'Jellyfin username' },
             { id: 'password', type: 'password', label: 'Password', placeholder: 'Jellyfin password' }
-        ], [
+        );
+
+        this.showModal('Sign in to Jellyfin', fields, [
             { label: 'Sign In', primary: true, onClick: (values) => this.signInToJellyfin(values) }
         ]);
     }
 
-    async signInToJellyfin({ username, password }) {
+    async signInToJellyfin({ serverUrl, username, password }) {
+        const nextServerUrl = this.normalizeBaseUrl(serverUrl || this.serverUrl || this.publicJellyfinUrl || "");
+        if (nextServerUrl) {
+            this.serverUrl = nextServerUrl;
+            localStorage.setItem('jelltogether-server-url', nextServerUrl);
+        }
+
         const name = (username || '').trim();
         if (!name || !password) {
             this.showToast("Enter your Jellyfin username and password.", 'error');
@@ -359,7 +399,7 @@ class JellTogetherApp {
         }
 
         try {
-            const response = await fetch('/Users/AuthenticateByName', {
+            const response = await fetch(this.apiUrl('/Users/AuthenticateByName'), {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: {
@@ -385,7 +425,7 @@ class JellTogetherApp {
 
     jellyfinAuthorizationHeader() {
         const deviceId = this.deviceId();
-        return `MediaBrowser Client="JellTogether Companion", Device="Browser", DeviceId="${deviceId}", Version="1.2.13.0"`;
+        return `MediaBrowser Client="JellTogether Companion", Device="Browser", DeviceId="${deviceId}", Version="1.2.14.0"`;
     }
 
     deviceId() {
@@ -1273,7 +1313,7 @@ class JellTogetherApp {
     }
 
     posterUrl(mediaId, height = 420, width = 280) {
-        return mediaId ? `/Items/${encodeURIComponent(mediaId)}/Images/Primary?fillHeight=${height}&fillWidth=${width}&quality=90` : '';
+        return mediaId ? this.apiUrl(`/Items/${encodeURIComponent(mediaId)}/Images/Primary?fillHeight=${height}&fillWidth=${width}&quality=90`) : '';
     }
 
     formatRuntime(ticks) {
@@ -1962,7 +2002,7 @@ class JellTogetherApp {
         const image = document.createElement('img');
         image.alt = '';
         image.loading = 'lazy';
-        image.src = `/Users/${encodeURIComponent(userId)}/Images/Primary?fillHeight=96&fillWidth=96&quality=90`;
+        image.src = this.apiUrl(`/Users/${encodeURIComponent(userId)}/Images/Primary?fillHeight=96&fillWidth=96&quality=90`);
         image.onload = () => {
             wrapper.textContent = '';
             wrapper.classList.remove('avatar-fallback');

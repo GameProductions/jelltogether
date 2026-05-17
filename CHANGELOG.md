@@ -1,5 +1,10 @@
 # JellTogether Changelog
 
+## [2026-05-17] - Companion server detection
+- Added explicit Jellyfin server URL bootstrap for standalone companion pages.
+- Added a Jellyfin server URL field to standalone sign-in when the companion cannot infer the server.
+- Routed companion API calls, poster art, and profile images through the detected Jellyfin server URL.
+
 ## [2026-05-17] - Companion changelog
 - Added a companion-visible changelog synced from the project changelog.
 - Added version badges to the companion header, room listings, and changelog entries.

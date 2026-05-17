@@ -159,6 +159,7 @@ namespace JellTogether.Plugin.Api
             return Ok(new
             {
                 publicJellyfinUrl = NormalizeBaseUrl(config?.PublicJellyfinUrl),
+                serverUrl = NormalizeBaseUrl(config?.PublicJellyfinUrl),
                 publicCompanionUrl = NormalizeBaseUrl(config?.PublicCompanionUrl),
                 enabledLibraryIds = config?.EnabledLibraryIds ?? new List<string>(),
                 allowQueueVotingByDefault = config?.AllowQueueVotingByDefault ?? true,
@@ -1123,6 +1124,9 @@ namespace JellTogether.Plugin.Api
             var queryScript = string.IsNullOrWhiteSpace(code)
                 ? string.Empty
                 : $"<script>window.JELL_TOGETHER_INVITE_CODE = {System.Text.Json.JsonSerializer.Serialize(code.Trim())};</script>";
+            var configuredJellyfin = NormalizeBaseUrl(Plugin.Instance?.Configuration.PublicJellyfinUrl);
+            var serverUrl = string.IsNullOrWhiteSpace(configuredJellyfin) ? $"{Request.Scheme}://{Request.Host}{basePath}" : configuredJellyfin;
+            var serverScript = $"<script>window.JELL_TOGETHER_SERVER_URL = {System.Text.Json.JsonSerializer.Serialize(serverUrl)};</script>";
 
             var html = $@"<!DOCTYPE html>
 <html lang=""en"">
@@ -1132,6 +1136,7 @@ namespace JellTogether.Plugin.Api
     <title>JellTogether | Jellyfin Watch Party Companion</title>
 </head>
 <body class=""jelltogether-standalone"">
+{serverScript}
 {queryScript}
 {fragment}
 </body>
