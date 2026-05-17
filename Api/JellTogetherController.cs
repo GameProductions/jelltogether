@@ -1222,8 +1222,13 @@ namespace JellTogether.Plugin.Api
 
         private string RequestServerUrl()
         {
+            var scheme = Request.Scheme;
+            if (Request.Headers.TryGetValue("X-Forwarded-Proto", out var proto) && !string.IsNullOrEmpty(proto))
+            {
+                scheme = proto.ToString();
+            }
             var basePath = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
-            return NormalizeBaseUrl($"{Request.Scheme}://{Request.Host}{basePath}");
+            return NormalizeBaseUrl($"{scheme}://{Request.Host}{basePath}");
         }
 
         private static string PluginVersion()

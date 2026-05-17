@@ -78,7 +78,18 @@ class JellTogetherApp {
     }
 
     normalizeBaseUrl(value) {
-        return (value || "").trim().replace(/\/+$/, '');
+        let url = (value || "").trim().replace(/\/+$/, '');
+        if (url && window.location.protocol === 'https:' && url.startsWith('http://')) {
+            try {
+                const parsed = new URL(url);
+                if (parsed.host === window.location.host) {
+                    url = 'https://' + url.substring(7);
+                }
+            } catch (e) {
+                // Ignore URL parsing errors
+            }
+        }
+        return url;
     }
 
     apiUrl(url) {
