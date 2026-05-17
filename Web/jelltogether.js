@@ -756,6 +756,10 @@ class JellTogetherApp {
     }
 
     hideModal() {
+        if (this.targetsPollInterval) {
+            clearInterval(this.targetsPollInterval);
+            this.targetsPollInterval = null;
+        }
         document.getElementById('app-modal-overlay')?.remove();
     }
 
@@ -1874,19 +1878,26 @@ class JellTogetherApp {
 
         const actionRow = document.createElement('div');
         actionRow.className = 'split-actions';
+        actionRow.appendChild(this.button('Refresh', 'secondary-command', () => refresh()));
         actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
         modal.appendChild(actionRow);
+
         overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
 
-        try {
-            const targets = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackTargets`);
-            this.renderPlaybackTargetSummary(targetList, targets || []);
-        } catch (e) {
-            console.error("Playback Target Summary Error:", e);
-            targetList.replaceChildren(this.textEl('div', 'Could not load active Jellyfin sessions.', 'loading'));
-        }
+        const refresh = async () => {
+            try {
+                const targets = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackTargets`);
+                this.renderPlaybackTargetSummary(targetList, targets || []);
+            } catch (e) {
+                console.error("Playback Target Summary Error:", e);
+                targetList.replaceChildren(this.textEl('div', 'Could not load active Jellyfin sessions.', 'loading'));
+            }
+        };
+
+        await refresh();
+        this.targetsPollInterval = setInterval(refresh, 5000);
     }
 
     async showStartWatchPartyModal(item) {
@@ -1909,8 +1920,14 @@ class JellTogetherApp {
 
         const actionRow = document.createElement('div');
         actionRow.className = 'split-actions';
-        const startButton = this.button('Start', 'primary-command', () => this.startWatchParty(item.id, this.selectedPlaybackTargets(targetList)));
+        const startButton = this.button('Start', 'primary-command', () => {
+            const selected = this.selectedPlaybackTargets(targetList);
+            this.hideModal();
+            this.startWatchParty(item.id, selected);
+        });
         startButton.disabled = true;
+
+        actionRow.appendChild(this.button('Refresh', 'secondary-command', () => refresh()));
         actionRow.appendChild(startButton);
         actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
         modal.appendChild(actionRow);
@@ -1919,13 +1936,26 @@ class JellTogetherApp {
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
 
-        try {
-            const targets = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackTargets`);
-            this.renderPlaybackTargets(targetList, targets || [], startButton);
-        } catch (e) {
-            console.error("Playback Targets Error:", e);
-            targetList.replaceChildren(this.textEl('div', 'Could not load active Jellyfin sessions.', 'loading'));
-        }
+        const refresh = async () => {
+            try {
+                const targets = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackTargets`);
+                const previouslySelected = new Set(this.selectedPlaybackTargets(targetList));
+                this.renderPlaybackTargets(targetList, targets || [], startButton);
+                
+                if (previouslySelected.size > 0) {
+                    targetList.querySelectorAll('input[type="checkbox"]').forEach(input => {
+                        input.checked = previouslySelected.has(input.value);
+                    });
+                    startButton.disabled = this.selectedPlaybackTargets(targetList).length === 0;
+                }
+            } catch (e) {
+                console.error("Playback Targets Error:", e);
+                targetList.replaceChildren(this.textEl('div', 'Could not load active Jellyfin sessions.', 'loading'));
+            }
+        };
+
+        await refresh();
+        this.targetsPollInterval = setInterval(refresh, 5000);
     }
 
     renderPlaybackTargetSummary(container, targets) {
