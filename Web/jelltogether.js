@@ -1364,7 +1364,10 @@ class JellTogetherApp {
     }
 
     posterUrl(mediaId, height = 420, width = 280) {
-        return mediaId ? this.apiUrl(`/Items/${encodeURIComponent(mediaId)}/Images/Primary?fillHeight=${height}&fillWidth=${width}&quality=90`) : '';
+        if (!mediaId) return '';
+        const token = this.getAccessToken();
+        const tokenParam = token ? `&api_key=${encodeURIComponent(token)}` : '';
+        return this.apiUrl(`/Items/${encodeURIComponent(mediaId)}/Images/Primary?fillHeight=${height}&fillWidth=${width}&quality=90${tokenParam}`);
     }
 
     formatRuntime(ticks) {
@@ -2182,7 +2185,9 @@ class JellTogetherApp {
         const image = document.createElement('img');
         image.alt = '';
         image.loading = 'lazy';
-        image.src = this.apiUrl(`/Users/${encodeURIComponent(mediaUserId)}/Images/Primary?fillHeight=160&fillWidth=160&quality=90`);
+        const token = this.getAccessToken();
+        const tokenParam = token ? `&api_key=${encodeURIComponent(token)}` : '';
+        image.src = this.apiUrl(`/Users/${encodeURIComponent(mediaUserId)}/Images/Primary?fillHeight=160&fillWidth=160&quality=90${tokenParam}`);
         image.onload = () => {
             wrapper.textContent = '';
             wrapper.classList.remove('avatar-fallback');
