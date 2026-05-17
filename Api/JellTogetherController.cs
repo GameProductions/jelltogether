@@ -1137,9 +1137,6 @@ namespace JellTogether.Plugin.Api
 
             using var reader = new StreamReader(stream);
             var fragment = reader.ReadToEnd();
-            var basePath = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
-            var resourceBase = $"{basePath}/web/configurationpage?name=";
-            fragment = fragment.Replace("configurationpage?name=", resourceBase, StringComparison.Ordinal);
 
             var queryScript = string.IsNullOrWhiteSpace(code)
                 ? string.Empty
@@ -1152,6 +1149,10 @@ namespace JellTogether.Plugin.Api
     <meta charset=""UTF-8"">
     <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
     <title>JellTogether | Jellyfin Watch Party Companion</title>
+    <link rel=""icon"" type=""image/png"" href=""configurationpage?name=favicon.png"">
+    <link rel=""apple-touch-icon"" href=""configurationpage?name=icon-192.png"">
+    <link rel=""manifest"" href=""configurationpage?name=manifest.json"">
+    <meta name=""theme-color"" content=""#8c44f7"">
 </head>
 <body class=""jelltogether-standalone"">
 {serverScript}
@@ -1159,6 +1160,10 @@ namespace JellTogether.Plugin.Api
 {fragment}
 </body>
 </html>";
+
+            var basePath = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
+            var resourceBase = $"{basePath}/web/configurationpage?name=";
+            html = html.Replace("configurationpage?name=", resourceBase, StringComparison.Ordinal);
 
             return Content(html, "text/html");
         }
