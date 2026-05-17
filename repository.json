@@ -9,12 +9,12 @@
     "category": "Social",
     "versions": [
       {
-        "version": "1.2.12.0",
-        "changelog": "Add sign-out, paginated queue controls, clear queue, selectable group queueing, and media detail previews.",
+        "version": "1.2.13.0",
+        "changelog": "Add companion changelog, version badges, and group queue select-all controls.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.12.0/jelltogether_1.2.12.0.zip",
-        "checksum": "438234E07B206B9D871CA641F6762817",
-        "timestamp": "2026-05-15T21:41:12Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.13.0/jelltogether_1.2.13.0.zip",
+        "checksum": "4FD90C89CB5E01C08435A134729B60C6",
+        "timestamp": "2026-05-17T10:53:29Z"
       }
     ]
   }

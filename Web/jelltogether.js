@@ -6,6 +6,8 @@ class JellTogetherApp {
         this.enabledLibraryIds = [];
         this.allowQueueVotingByDefault = true;
         this.allowParticipantQueueAdds = true;
+        this.pluginVersion = "1.2.13.0";
+        this.changelog = [];
         this.currentRoom = null;
         this.currentUser = "Unknown";
         this.currentJellyfinMediaUserId = "";
@@ -81,6 +83,8 @@ class JellTogetherApp {
             this.enabledLibraryIds = settings.enabledLibraryIds || [];
             this.allowQueueVotingByDefault = settings.allowQueueVotingByDefault !== false;
             this.allowParticipantQueueAdds = settings.allowParticipantQueueAdds !== false;
+            this.pluginVersion = settings.pluginVersion || this.pluginVersion;
+            this.changelog = Array.isArray(settings.changelog) ? settings.changelog : [];
             this.canSavePublicAccessSettings = settings.canSavePublicAccessSettings === true;
         } catch (e) {
             console.error("Settings Load Error:", e);
@@ -94,6 +98,8 @@ class JellTogetherApp {
         if (jellyfinInput) jellyfinInput.value = this.publicJellyfinUrl;
         if (companionInput) companionInput.value = this.publicCompanionOrigin || this.generatedCompanionUrl();
         this.updateCompanionPills();
+        this.updateVersionLabels();
+        this.renderChangelogPanel();
     }
 
     setupEventHandlers() {
@@ -140,6 +146,90 @@ class JellTogetherApp {
         const sharePill = document.getElementById('public-companion-link-text');
         if (settingsPill) settingsPill.textContent = label;
         if (sharePill) sharePill.textContent = label;
+    }
+
+    updateVersionLabels() {
+        document.querySelectorAll('[data-plugin-version]').forEach(el => {
+            el.textContent = this.versionLabel(this.pluginVersion);
+        });
+    }
+
+    versionLabel(value = this.pluginVersion) {
+        const label = value || this.pluginVersion;
+        return String(label).toLowerCase().startsWith('v') || label === 'Earlier'
+            ? label
+            : `v${label}`;
+    }
+
+    renderChangelogPanel() {
+        const panel = document.getElementById('changelog-panel');
+        if (!panel) return;
+        this.clear(panel);
+
+        const latest = this.changelog[0];
+        const header = document.createElement('div');
+        header.className = 'changelog-panel-header';
+        header.appendChild(this.textEl('span', "What's New", 'eyebrow'));
+        header.appendChild(this.textEl('strong', latest?.title || 'Release notes'));
+        header.appendChild(this.textEl('em', this.versionLabel(latest?.version || this.pluginVersion)));
+        panel.appendChild(header);
+
+        const list = document.createElement('ul');
+        (latest?.items || ['Release notes will appear here after signing in.']).slice(0, 3).forEach(item => {
+            const li = document.createElement('li');
+            li.textContent = item;
+            list.appendChild(li);
+        });
+        panel.appendChild(list);
+        panel.appendChild(this.button('View Full Changelog', 'secondary-command compact', () => this.showChangelogModal()));
+    }
+
+    showChangelogModal() {
+        this.hideModal();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card changelog-modal';
+        modal.appendChild(this.textEl('h3', 'JellTogether Changelog'));
+        modal.appendChild(this.textEl('p', `Current version ${this.versionLabel(this.pluginVersion)}`, 'modal-subtitle'));
+
+        const entries = document.createElement('div');
+        entries.className = 'changelog-list';
+        if (!this.changelog.length) {
+            entries.appendChild(this.textEl('div', 'Sign in to load release notes.', 'loading'));
+        }
+
+        this.changelog.forEach(entry => {
+            const card = document.createElement('article');
+            card.className = 'changelog-entry';
+            const heading = document.createElement('div');
+            heading.className = 'changelog-entry-heading';
+            heading.appendChild(this.textEl('strong', entry.title || 'Release'));
+            heading.appendChild(this.textEl('span', this.versionLabel(entry.version || this.pluginVersion)));
+            card.appendChild(heading);
+            if (entry.date) card.appendChild(this.textEl('em', entry.date));
+
+            const items = document.createElement('ul');
+            (entry.items || []).forEach(item => {
+                const li = document.createElement('li');
+                li.textContent = item;
+                items.appendChild(li);
+            });
+            card.appendChild(items);
+            entries.appendChild(card);
+        });
+        modal.appendChild(entries);
+
+        const actionRow = document.createElement('div');
+        actionRow.className = 'split-actions';
+        actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
+        modal.appendChild(actionRow);
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
     }
 
     async loadCurrentUser() {
@@ -295,7 +385,7 @@ class JellTogetherApp {
 
     jellyfinAuthorizationHeader() {
         const deviceId = this.deviceId();
-        return `MediaBrowser Client="JellTogether Companion", Device="Browser", DeviceId="${deviceId}", Version="1.2.12.0"`;
+        return `MediaBrowser Client="JellTogether Companion", Device="Browser", DeviceId="${deviceId}", Version="1.2.13.0"`;
     }
 
     deviceId() {
@@ -635,6 +725,7 @@ class JellTogetherApp {
             const meta = document.createElement('div');
             meta.className = 'meta';
             meta.appendChild(this.textEl('span', `Participants: ${room.participants?.length || 0}`));
+            meta.appendChild(this.textEl('span', this.versionLabel(this.pluginVersion)));
             card.appendChild(meta);
 
             const nowPlaying = this.roomNowPlayingDetails(room);
@@ -1210,6 +1301,16 @@ class JellTogetherApp {
         modal.appendChild(this.textEl('h3', option.label));
         modal.appendChild(this.textEl('p', 'Choose the movies, seasons, or episodes to add.', 'modal-subtitle'));
 
+        const pickerTools = document.createElement('div');
+        pickerTools.className = 'queue-picker-tools';
+        pickerTools.appendChild(this.button('Select All', 'micro-command primary', () => {
+            list.querySelectorAll('input[type="checkbox"]').forEach(input => { input.checked = true; });
+        }));
+        pickerTools.appendChild(this.button('Deselect All', 'micro-command', () => {
+            list.querySelectorAll('input[type="checkbox"]').forEach(input => { input.checked = false; });
+        }));
+        modal.appendChild(pickerTools);
+
         const list = document.createElement('div');
         list.className = 'queue-picker-list';
         option.items.forEach(item => {
@@ -1232,6 +1333,10 @@ class JellTogetherApp {
         actionRow.className = 'split-actions';
         actionRow.appendChild(this.button('Add Selected', 'primary-command', () => {
             const selected = [...list.querySelectorAll('input:checked')].map(input => option.items.find(item => item.mediaId === input.value)).filter(Boolean);
+            if (!selected.length) {
+                this.showToast("Choose at least one item to add.", 'error');
+                return;
+            }
             this.addMediaGroupToQueue(selected, `${selected.length} item${selected.length === 1 ? '' : 's'} added to queue.`);
         }));
         if (sourceItem) actionRow.appendChild(this.button('Back', 'secondary-command', () => this.showMediaDetails(sourceItem, previousOptions)));

@@ -8,6 +8,7 @@
                 <div class="logo">
                     <img src="configurationpage?name=logo.png" alt="" aria-hidden="true" onerror="this.onerror=null;this.src='../logo.png';">
                     <span>JellTogether</span>
+                    <em class="version-badge" data-plugin-version>v1.2.13.0</em>
                 </div>
                 <div class="user-profile">
                     <div class="user-profile-copy">
@@ -29,6 +30,7 @@
                         <div class="hero-actions">
                             <button class="primary-command" onclick="app.createRoom()">Create Party</button>
                             <button class="secondary-command" onclick="app.copyCompanionLink()">Copy Companion Link</button>
+                            <button class="secondary-command" onclick="app.showChangelogModal()">What's New</button>
                         </div>
                     </div>
 
@@ -36,6 +38,10 @@
                         <input type="text" id="join-code-input" class="glass-input" placeholder="Enter invite code">
                         <button class="secondary-command" onclick="app.joinByCode()">Join</button>
                     </div>
+
+                    <section id="changelog-panel" class="changelog-panel">
+                        <div class="loading">Loading release notes...</div>
+                    </section>
 
                     <div id="room-grid" class="room-grid">
                         <div class="loading">Searching for active parties...</div>

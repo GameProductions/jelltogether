@@ -123,6 +123,17 @@ body button {
     color: transparent;
 }
 
+.version-badge {
+    padding: 4px 8px;
+    border: 1px solid rgba(94, 234, 212, 0.30);
+    border-radius: 999px;
+    color: var(--text-muted);
+    background: rgba(94, 234, 212, 0.08);
+    font-size: 0.68rem;
+    font-style: normal;
+    font-weight: 900;
+}
+
 .user-profile {
     display: flex;
     align-items: center;
@@ -467,6 +478,53 @@ h1 {
 .room-card .btn-join {
     width: 100%;
     margin-top: 22px;
+}
+
+.changelog-panel {
+    display: grid;
+    gap: 12px;
+    padding: 18px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background:
+        linear-gradient(135deg, rgba(94, 234, 212, 0.09), rgba(255, 77, 166, 0.07)),
+        rgba(255, 255, 255, 0.045);
+}
+
+.changelog-panel-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 12px;
+    align-items: center;
+}
+
+.changelog-panel-header .eyebrow {
+    grid-column: 1 / -1;
+}
+
+.changelog-panel-header strong {
+    color: var(--text-main);
+    font-size: 1rem;
+}
+
+.changelog-panel-header em,
+.changelog-entry-heading span {
+    padding: 4px 8px;
+    border: 1px solid rgba(94, 234, 212, 0.24);
+    border-radius: 999px;
+    color: var(--primary);
+    background: rgba(94, 234, 212, 0.08);
+    font-size: 0.7rem;
+    font-style: normal;
+    font-weight: 900;
+}
+
+.changelog-panel ul,
+.changelog-entry ul {
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text-muted);
+    line-height: 1.45;
 }
 
 .loading {
@@ -1161,7 +1219,8 @@ h1 {
 }
 
 .media-detail-modal,
-.queue-picker-modal {
+.queue-picker-modal,
+.changelog-modal {
     width: min(92vw, 760px);
     max-height: min(86vh, 780px);
     overflow-y: auto;
@@ -1274,6 +1333,13 @@ h1 {
     padding-right: 4px;
 }
 
+.queue-picker-tools {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin: 10px 0 4px;
+}
+
 .queue-picker-item {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
@@ -1311,6 +1377,39 @@ h1 {
     color: var(--text-dim);
     font-size: 0.78rem;
     font-weight: 800;
+}
+
+.changelog-list {
+    display: grid;
+    gap: 12px;
+    margin: 16px 0;
+}
+
+.changelog-entry {
+    display: grid;
+    gap: 8px;
+    padding: 14px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.045);
+}
+
+.changelog-entry-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.changelog-entry-heading strong {
+    color: var(--text-main);
+    overflow-wrap: anywhere;
+}
+
+.changelog-entry > em {
+    color: var(--text-dim);
+    font-size: 0.76rem;
+    font-style: normal;
 }
 
 .chat-messages {

@@ -1,5 +1,10 @@
 # JellTogether Changelog
 
+## [2026-05-17] - Companion changelog
+- Added a companion-visible changelog synced from the project changelog.
+- Added version badges to the companion header, room listings, and changelog entries.
+- Added Select All and Deselect All controls to group queue picking.
+
 ## [2026-05-15] - Queue and media details
 - Added a companion sign-out/sign-in action.
 - Added paginated Up Next queue controls after 10 items.

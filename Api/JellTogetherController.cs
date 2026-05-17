@@ -167,6 +167,8 @@ namespace JellTogether.Plugin.Api
                 allowAndroidTvPlaybackTargets = config?.AllowAndroidTvPlaybackTargets ?? true,
                 persistRoomHistory = config?.PersistRoomHistory ?? true,
                 defaultInviteExpirationHours = config?.DefaultInviteExpirationHours ?? 24,
+                pluginVersion = PluginVersion(),
+                changelog = ChangelogEntries(),
                 canSavePublicAccessSettings = IsElevatedUser()
             });
         }
@@ -212,7 +214,9 @@ namespace JellTogether.Plugin.Api
                 allowParticipantInvitesByDefault = config?.AllowParticipantInvitesByDefault ?? true,
                 allowAndroidTvPlaybackTargets = config?.AllowAndroidTvPlaybackTargets ?? true,
                 persistRoomHistory = config?.PersistRoomHistory ?? true,
-                defaultInviteExpirationHours = config?.DefaultInviteExpirationHours ?? 24
+                defaultInviteExpirationHours = config?.DefaultInviteExpirationHours ?? 24,
+                pluginVersion = PluginVersion(),
+                changelog = ChangelogEntries()
             });
         }
 
@@ -1191,6 +1195,66 @@ namespace JellTogether.Plugin.Api
         private static string WebConfigurationPageUrl(string baseUrl, string? code)
         {
             return AddInviteCode($"{NormalizeBaseUrl(baseUrl)}/jelltogether/Companion", code);
+        }
+
+        private static string PluginVersion()
+        {
+            return typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "0.0.0.0";
+        }
+
+        private static List<object> ChangelogEntries()
+        {
+            var markdown = ReadChangelogMarkdown();
+            if (string.IsNullOrWhiteSpace(markdown)) return new List<object>();
+
+            var entries = new List<object>();
+            var currentVersion = PluginVersion();
+            string date = string.Empty;
+            string title = string.Empty;
+            var items = new List<string>();
+
+            void Flush()
+            {
+                if (string.IsNullOrWhiteSpace(title) && items.Count == 0) return;
+                entries.Add(new
+                {
+                    version = entries.Count == 0 ? currentVersion : "Earlier",
+                    date,
+                    title,
+                    items = items.ToArray()
+                });
+                items = new List<string>();
+            }
+
+            foreach (var rawLine in markdown.Split('\n'))
+            {
+                var line = rawLine.Trim();
+                var heading = Regex.Match(line, @"^##\s+\[(?<date>[^\]]+)\]\s*-\s*(?<title>.+)$");
+                if (heading.Success)
+                {
+                    Flush();
+                    date = heading.Groups["date"].Value.Trim();
+                    title = heading.Groups["title"].Value.Trim();
+                    continue;
+                }
+
+                if (line.StartsWith("- ", StringComparison.Ordinal))
+                {
+                    items.Add(line[2..].Trim());
+                }
+            }
+
+            Flush();
+            return entries.Take(8).Cast<object>().ToList();
+        }
+
+        private static string ReadChangelogMarkdown()
+        {
+            var assembly = typeof(Plugin).Assembly;
+            using var stream = assembly.GetManifestResourceStream("JellTogether.Plugin.CHANGELOG.md");
+            if (stream == null) return string.Empty;
+            using var reader = new StreamReader(stream);
+            return reader.ReadToEnd();
         }
 
         private static bool IsLocalOrPrivateHost(string host)

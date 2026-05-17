@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 # --- CONFIGURATION ---
 GITHUB_USER = "GameProductions"
 REPO_NAME = "jelltogether"
-VERSION = "1.2.12.0"
+VERSION = "1.2.13.0"
 TARGET_ABI = "10.11.8.0"
 GUID = "f9e1e2d3-a4b5-4c6d-8e9f-0a1b2c3d4e5f"
 # ---------------------
@@ -19,7 +19,7 @@ ZIP_NAME = f"jelltogether_{VERSION}.zip"
 ZIP_PATH = os.path.join(BASE_DIR, ZIP_NAME)
 REPO_JSON_PATH = os.path.join(BASE_DIR, "repository.json")
 MANIFEST_JSON_PATH = os.path.join(BASE_DIR, "manifest.json")
-CHANGELOG = "Add sign-out, paginated queue controls, clear queue, selectable group queueing, and media detail previews."
+CHANGELOG = "Add companion changelog, version badges, and group queue select-all controls."
 
 def run_command(cmd):
     print(f"Running: {cmd}")
