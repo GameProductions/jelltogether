@@ -9,12 +9,12 @@
     "category": "Social",
     "versions": [
       {
-        "version": "1.2.16.0",
+        "version": "1.2.17.0",
         "changelog": "Fix HTTP mixed content issues on secure HTTPS Jellyfin sites behind reverse proxies.\n\n- Respect the X-Forwarded-Proto header on the backend to correctly identify HTTPS scheme behind SSL-terminating reverse proxies.\n- Dynamically upgrade matching http:// host URLs to https:// in frontend normalizeBaseUrl when page protocol is HTTPS.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.16.0/jelltogether_1.2.16.0.zip",
-        "checksum": "A7F27B7C027CE56E152B0DBE6F929699",
-        "timestamp": "2026-05-17T23:14:10Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.17.0/jelltogether_1.2.17.0.zip",
+        "checksum": "71A255A8139388EB74C907A1077986D8",
+        "timestamp": "2026-05-18T00:09:23Z"
       },
       {
         "version": "1.2.15.0",
