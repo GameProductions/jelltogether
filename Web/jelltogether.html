@@ -15,15 +15,10 @@
                         <span class="profile-label">Signed in</span>
                         <span id="display-name">Loading...</span>
                     </div>
-                    <div id="connected-server-card" class="server-card">
-                        <div class="server-card-info">
-                            <span class="server-card-label">Server</span>
-                            <span id="connected-server-display" class="server-card-host">Detecting...</span>
-                        </div>
-                        <button class="server-change-btn" onclick="app.showServerConnectionModal()" title="Change Connected Server">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"></path></svg>
-                        </button>
-                    </div>
+                    <button id="server-status-trigger" class="server-status-btn" onclick="app.showServerStatusModal()" title="View Server Connection">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>
+                        <span class="server-status-dot"></span>
+                    </button>
                     <button id="btn-auth-action" class="micro-command" onclick="app.handleAuthAction()">Sign Out</button>
                 </div>
             </header>

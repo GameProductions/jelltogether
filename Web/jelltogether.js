@@ -187,11 +187,17 @@ class JellTogetherApp {
     }
 
     updateServerIndicator() {
+        const trigger = document.getElementById('server-status-trigger');
+        if (trigger) {
+            trigger.title = this.serverUrl ? `Connected to ${this.serverUrl}` : 'Choose a Jellyfin server';
+            trigger.classList.toggle('is-missing', !this.serverUrl);
+        }
+
         const card = document.getElementById('connected-server-card');
         const display = document.getElementById('connected-server-display');
-        if (!display) return;
-        const label = this.serverUrl ? this.serverDisplayName(this.serverUrl) : 'Not connected';
-        display.textContent = label;
+        if (display) {
+            display.textContent = this.serverUrl ? this.serverDisplayName(this.serverUrl) : 'Not connected';
+        }
         if (card) {
             card.title = this.serverUrl ? `Connected to ${this.serverUrl}` : 'Choose a Jellyfin server';
             card.classList.toggle('is-missing', !this.serverUrl);
@@ -205,6 +211,68 @@ class JellTogetherApp {
         } catch {
             return value || 'Unknown';
         }
+    }
+
+    showServerStatusModal() {
+        this.hideModal();
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card server-status-modal';
+        
+        const header = document.createElement('div');
+        header.className = 'modal-header';
+        
+        const title = this.textEl('h3', '🌐 Server Connection');
+        const subtitle = this.textEl('p', 'Your active companion backend connection status', 'modal-subtitle');
+        header.appendChild(title);
+        header.appendChild(subtitle);
+        modal.appendChild(header);
+        
+        // Full Server Card inside the modal where it has plenty of space!
+        const serverCard = document.createElement('div');
+        serverCard.id = 'connected-server-card';
+        serverCard.className = this.serverUrl ? 'server-card' : 'server-card is-missing';
+        
+        const info = document.createElement('div');
+        info.className = 'server-card-info';
+        const label = this.textEl('span', 'Connected Server URL', 'server-card-label');
+        const display = this.textEl('span', this.serverUrl || 'Not connected', 'server-card-host');
+        display.id = 'connected-server-display';
+        info.appendChild(label);
+        info.appendChild(display);
+        serverCard.appendChild(info);
+        modal.appendChild(serverCard);
+        
+        // Help text
+        const helpText = document.createElement('p');
+        helpText.className = 'server-status-help';
+        if (this.serverUrl) {
+            helpText.innerHTML = `Companion is actively synced with the Jellyfin server at <code>${this.serverUrl}</code>. Live watch party rooms and target active sessions are loaded from this address.`;
+        } else {
+            helpText.innerHTML = `No connection has been configured. JellTogether requires an active link to a Jellyfin server to host and sync watch parties.`;
+        }
+        modal.appendChild(helpText);
+        
+        const actionRow = document.createElement('div');
+        actionRow.className = 'split-actions';
+        
+        actionRow.appendChild(this.button('Change Server', 'primary-command', () => {
+            this.hideModal();
+            this.showServerConnectionModal();
+        }));
+        actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
+        modal.appendChild(actionRow);
+        
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        
+        // Synchronize display indicators immediately
+        this.updateServerIndicator();
     }
 
     showServerConnectionModal() {

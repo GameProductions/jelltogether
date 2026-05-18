@@ -223,6 +223,86 @@ body button {
     color: #ff4da6;
 }
 
+.server-status-btn {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid rgba(94, 234, 212, 0.25);
+    border-radius: 50%;
+    background: rgba(94, 234, 212, 0.06);
+    color: var(--primary);
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0;
+}
+
+.server-status-btn:hover {
+    border-color: var(--primary);
+    background: rgba(94, 234, 212, 0.15);
+    color: var(--primary);
+    transform: scale(1.06);
+}
+
+.server-status-btn.is-missing {
+    border-color: rgba(255, 77, 166, 0.25);
+    background: rgba(255, 77, 166, 0.06);
+    color: #ff4da6;
+}
+
+.server-status-btn.is-missing:hover {
+    border-color: #ff4da6;
+    background: rgba(255, 77, 166, 0.15);
+}
+
+.server-status-dot {
+    position: absolute;
+    bottom: -1px;
+    right: -1px;
+    width: 9px;
+    height: 9px;
+    border: 2px solid #000;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.6);
+    transition: all 0.2s ease;
+}
+
+.server-status-btn.is-missing .server-status-dot {
+    background: #ef4444;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+}
+
+.server-status-help {
+    font-size: 0.8rem;
+    line-height: 1.5;
+    color: var(--text-muted);
+    margin: 16px 0 24px;
+}
+
+.server-status-help code {
+    background: rgba(255, 255, 255, 0.06);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: monospace;
+    color: var(--text-main);
+    word-break: break-all;
+}
+
+.server-status-modal .server-card {
+    max-width: none;
+    height: auto;
+    padding: 14px 18px;
+}
+
+.server-status-modal .server-card-host {
+    white-space: normal;
+    word-break: break-all;
+}
+
 .user-profile-copy {
     min-width: 0;
     display: grid;
