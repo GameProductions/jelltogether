@@ -19,12 +19,37 @@ ZIP_NAME = f"jelltogether_{VERSION}.zip"
 ZIP_PATH = os.path.join(BASE_DIR, ZIP_NAME)
 REPO_JSON_PATH = os.path.join(BASE_DIR, "repository.json")
 MANIFEST_JSON_PATH = os.path.join(BASE_DIR, "manifest.json")
-CHANGELOG = """Fix HTTP mixed content issues on secure HTTPS Jellyfin sites behind reverse proxies.
+CHANGELOG = """Add target device connection diagnostics, status checklists, and interactive troubleshooting guides.
 
-- Respect the X-Forwarded-Proto header on the backend to correctly identify HTTPS scheme behind SSL-terminating reverse proxies.
-- Dynamically upgrade matching http:// host URLs to https:// in frontend normalizeBaseUrl when page protocol is HTTPS."""
+- Added an info button next to each playback target device in the dashboard summary and session initializer.
+- Added a non-intrusive hover tooltip checklist showing awake state, remote command support, and player engine bindings.
+- Added a gorgeous clickable glassmorphic diagnostic modal showing technical session fields.
+- Added custom-tailored step-by-step resolution advice for failed connection criteria.
+- Kept ineligible target devices visible in selection views with a clean, low-opacity disabled style to allow real-time diagnostic troubleshooting."""
 
 HISTORICAL_RELEASES = [
+    {
+        "version": "1.2.17.0",
+        "changelog": """A maintenance patch release to structure release archives on disk and update build dependencies.
+
+- Relocated older ZIP release packages into the /archives folder to optimize root-level directory layout.
+- Configured git to ignore binary archives to prevent repository bloating.""",
+        "targetAbi": TARGET_ABI,
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.17.0/jelltogether_1.2.17.0.zip",
+        "checksum": "71A255A8139388EB74C907A1077986D8",
+        "timestamp": "2026-05-18T00:09:44Z",
+    },
+    {
+        "version": "1.2.16.0",
+        "changelog": """Fix HTTP mixed content issues on secure HTTPS Jellyfin sites behind reverse proxies.
+
+- Respect the X-Forwarded-Proto header on the backend to correctly identify HTTPS scheme behind SSL-terminating reverse proxies.
+- Dynamically upgrade matching http:// host URLs to https:// in frontend normalizeBaseUrl when page protocol is HTTPS.""",
+        "targetAbi": TARGET_ABI,
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.16.0/jelltogether_1.2.16.0.zip",
+        "checksum": "A7F27B7C027CE56E152B0DBE6F929699",
+        "timestamp": "2026-05-17T23:38:00Z",
+    },
     {
         "version": "1.2.15.0",
         "changelog": """Add theater screen controls, connected-server switching, profile-aware seating details, and full Jellyfin revision history.
