@@ -8,12 +8,13 @@ from datetime import datetime, timezone
 # --- CONFIGURATION ---
 GITHUB_USER = "GameProductions"
 REPO_NAME = "jelltogether"
-VERSION = "1.2.18.0"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+with open(os.path.join(BASE_DIR, "version.txt"), "r") as f:
+    VERSION = f.read().strip()
 TARGET_ABI = "10.11.8.0"
 GUID = "f9e1e2d3-a4b5-4c6d-8e9f-0a1b2c3d4e5f"
 # ---------------------
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PUBLISH_DIR = os.path.join(BASE_DIR, "bin", "Release", "net9.0", "publish")
 ZIP_NAME = f"jelltogether_{VERSION}.zip"
 ZIP_PATH = os.path.join(BASE_DIR, ZIP_NAME)

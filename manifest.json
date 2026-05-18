@@ -13,8 +13,8 @@
         "changelog": "Add target device connection diagnostics, status checklists, and interactive troubleshooting guides.\n\n- Added an info button next to each playback target device in the dashboard summary and session initializer.\n- Added a non-intrusive hover tooltip checklist showing awake state, remote command support, and player engine bindings.\n- Added a gorgeous clickable glassmorphic diagnostic modal showing technical session fields.\n- Added custom-tailored step-by-step resolution advice for failed connection criteria.\n- Kept ineligible target devices visible in selection views with a clean, low-opacity disabled style to allow real-time diagnostic troubleshooting.",
         "targetAbi": "10.11.8.0",
         "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.18.0/jelltogether_1.2.18.0.zip",
-        "checksum": "22BBE49B33223272E3059FFD7A8891C7",
-        "timestamp": "2026-05-18T00:38:48Z"
+        "checksum": "4C5C470ED5656F228F4F783BA1B662F8",
+        "timestamp": "2026-05-18T00:40:38Z"
       },
       {
         "version": "1.2.17.0",
