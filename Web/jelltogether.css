@@ -145,33 +145,82 @@ body button {
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
 }
 
-.server-pill {
-    min-height: 30px;
-    max-width: min(240px, 28vw);
+.server-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 32px;
     padding: 0 10px;
     border: 1px solid rgba(94, 234, 212, 0.30);
-    border-radius: 999px;
-    color: var(--text-muted);
-    background: rgba(94, 234, 212, 0.08);
-    cursor: pointer;
-    font-size: 0.72rem;
-    font-weight: 900;
+    border-radius: 10px;
+    background: rgba(94, 234, 212, 0.06);
+    transition: all 0.2s ease;
+    max-width: min(240px, 28vw);
+}
+
+.server-card.is-missing {
+    border-color: rgba(255, 77, 166, 0.30);
+    background: rgba(255, 77, 166, 0.06);
+}
+
+.server-card-info {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    min-width: 0;
+}
+
+.server-card-label {
+    font-size: 0.58rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    line-height: 1;
+    margin-bottom: 2px;
+}
+
+.server-card-host {
+    font-size: 0.74rem;
+    font-weight: 700;
+    color: var(--text-main);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    line-height: 1;
 }
 
-.server-pill:hover,
-.server-pill:focus-visible {
-    color: var(--text-main);
-    border-color: rgba(94, 234, 212, 0.56);
-    outline: none;
-}
-
-.server-pill.is-missing {
+.server-card.is-missing .server-card-host {
     color: #ffd8e9;
-    border-color: rgba(255, 111, 177, 0.40);
-    background: rgba(255, 111, 177, 0.10);
+}
+
+.server-change-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    flex-shrink: 0;
+}
+
+.server-change-btn:hover {
+    border-color: var(--primary);
+    background: rgba(94, 234, 212, 0.15);
+    color: var(--primary);
+    transform: scale(1.08);
+}
+
+.server-card.is-missing .server-change-btn:hover {
+    border-color: #ff4da6;
+    background: rgba(255, 77, 166, 0.15);
+    color: #ff4da6;
 }
 
 .user-profile-copy {

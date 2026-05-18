@@ -187,12 +187,15 @@ class JellTogetherApp {
     }
 
     updateServerIndicator() {
-        const pill = document.getElementById('connected-server-pill');
-        if (!pill) return;
+        const card = document.getElementById('connected-server-card');
+        const display = document.getElementById('connected-server-display');
+        if (!display) return;
         const label = this.serverUrl ? this.serverDisplayName(this.serverUrl) : 'Not connected';
-        pill.textContent = `Server: ${label}`;
-        pill.title = this.serverUrl ? `Connected to ${this.serverUrl}` : 'Choose a Jellyfin server';
-        pill.classList.toggle('is-missing', !this.serverUrl);
+        display.textContent = label;
+        if (card) {
+            card.title = this.serverUrl ? `Connected to ${this.serverUrl}` : 'Choose a Jellyfin server';
+            card.classList.toggle('is-missing', !this.serverUrl);
+        }
     }
 
     serverDisplayName(value) {
