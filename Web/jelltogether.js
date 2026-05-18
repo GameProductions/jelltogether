@@ -1,11 +1,14 @@
 class JellTogetherApp {
     constructor() {
+        this.serverUrl = this.initialServerUrl();
         this.publicJellyfinUrl = "";
         this.publicCompanionOrigin = "";
         this.canSavePublicAccessSettings = false;
         this.enabledLibraryIds = [];
         this.allowQueueVotingByDefault = true;
         this.allowParticipantQueueAdds = true;
+        this.pluginVersion = "1.2.18.0";
+        this.changelog = [];
         this.currentRoom = null;
         this.currentUser = "Unknown";
         this.currentJellyfinMediaUserId = "";
@@ -60,9 +63,44 @@ class JellTogetherApp {
         return new URLSearchParams(hashQuery).get('code');
     }
 
+    initialServerUrl() {
+        const injected = this.normalizeBaseUrl(window.JELL_TOGETHER_SERVER_URL || "");
+        if (injected) return injected;
+        const stored = this.normalizeBaseUrl(localStorage.getItem('jelltogether-server-url') || "");
+        if (stored) return stored;
+        return this.isLikelyJellyfinOrigin() ? window.location.origin : "";
+    }
+
+    isLikelyJellyfinOrigin() {
+        return window.location.pathname.startsWith('/jelltogether') ||
+            window.location.pathname.startsWith('/web/') ||
+            window.location.pathname.includes('configurationpage');
+    }
+
+    normalizeBaseUrl(value) {
+        let url = (value || "").trim().replace(/\/+$/, '');
+        if (url && window.location.protocol === 'https:' && url.startsWith('http://')) {
+            try {
+                const parsed = new URL(url);
+                if (parsed.host === window.location.host) {
+                    url = 'https://' + url.substring(7);
+                }
+            } catch (e) {
+                // Ignore URL parsing errors
+            }
+        }
+        return url;
+    }
+
+    apiUrl(url) {
+        if (!url || /^https?:\/\//i.test(url)) return url;
+        if (!url.startsWith('/')) return url;
+        return this.serverUrl ? `${this.serverUrl}${url}` : url;
+    }
+
     companionUrl(code = null) {
         const base = this.publicCompanionOrigin ||
-            (this.publicJellyfinUrl ? `${this.publicJellyfinUrl.replace(/\/+$/, '')}/jelltogether/Companion` : `${window.location.origin}/jelltogether/Companion`);
+            (this.publicJellyfinUrl ? `${this.normalizeBaseUrl(this.publicJellyfinUrl)}/jelltogether/Companion` : `${window.location.origin}/jelltogether/Companion`);
         return this.addInviteCode(base, code);
     }
 
@@ -77,10 +115,14 @@ class JellTogetherApp {
         try {
             const settings = await this.fetchJson('/jelltogether/Settings');
             this.publicJellyfinUrl = settings.publicJellyfinUrl || "";
+            this.serverUrl = this.normalizeBaseUrl(this.publicJellyfinUrl || settings.serverUrl || this.serverUrl);
+            if (this.serverUrl) localStorage.setItem('jelltogether-server-url', this.serverUrl);
             this.publicCompanionOrigin = settings.publicCompanionUrl || "";
             this.enabledLibraryIds = settings.enabledLibraryIds || [];
             this.allowQueueVotingByDefault = settings.allowQueueVotingByDefault !== false;
             this.allowParticipantQueueAdds = settings.allowParticipantQueueAdds !== false;
+            this.pluginVersion = settings.pluginVersion || this.pluginVersion;
+            this.changelog = Array.isArray(settings.changelog) ? settings.changelog : [];
             this.canSavePublicAccessSettings = settings.canSavePublicAccessSettings === true;
         } catch (e) {
             console.error("Settings Load Error:", e);
@@ -94,6 +136,8 @@ class JellTogetherApp {
         if (jellyfinInput) jellyfinInput.value = this.publicJellyfinUrl;
         if (companionInput) companionInput.value = this.publicCompanionOrigin || this.generatedCompanionUrl();
         this.updateCompanionPills();
+        this.updateVersionLabels();
+        this.updateServerIndicator();
     }
 
     setupEventHandlers() {
@@ -129,7 +173,7 @@ class JellTogetherApp {
     }
 
     generatedCompanionUrl(value = this.publicJellyfinUrl) {
-        const base = (value || "").trim().replace(/\/+$/, '');
+        const base = this.normalizeBaseUrl(value || "");
         return base ? `${base}/jelltogether/Companion` : "";
     }
 
@@ -140,6 +184,198 @@ class JellTogetherApp {
         const sharePill = document.getElementById('public-companion-link-text');
         if (settingsPill) settingsPill.textContent = label;
         if (sharePill) sharePill.textContent = label;
+    }
+
+    updateServerIndicator() {
+        const trigger = document.getElementById('server-status-trigger');
+        if (trigger) {
+            trigger.title = this.serverUrl ? `Connected to ${this.serverUrl}` : 'Choose a Jellyfin server';
+            trigger.classList.toggle('is-missing', !this.serverUrl);
+        }
+
+        const card = document.getElementById('connected-server-card');
+        const display = document.getElementById('connected-server-display');
+        if (display) {
+            display.textContent = this.serverUrl ? this.serverDisplayName(this.serverUrl) : 'Not connected';
+        }
+        if (card) {
+            card.title = this.serverUrl ? `Connected to ${this.serverUrl}` : 'Choose a Jellyfin server';
+            card.classList.toggle('is-missing', !this.serverUrl);
+        }
+    }
+
+    serverDisplayName(value) {
+        try {
+            const url = new URL(value);
+            return url.host;
+        } catch {
+            return value || 'Unknown';
+        }
+    }
+
+    showServerStatusModal() {
+        this.hideModal();
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card server-status-modal';
+        
+        const header = document.createElement('div');
+        header.className = 'modal-header';
+        
+        const title = this.textEl('h3', '🌐 Server Connection');
+        const subtitle = this.textEl('p', 'Your active companion backend connection status', 'modal-subtitle');
+        header.appendChild(title);
+        header.appendChild(subtitle);
+        modal.appendChild(header);
+        
+        // Full Server Card inside the modal where it has plenty of space!
+        const serverCard = document.createElement('div');
+        serverCard.id = 'connected-server-card';
+        serverCard.className = this.serverUrl ? 'server-card' : 'server-card is-missing';
+        
+        const info = document.createElement('div');
+        info.className = 'server-card-info';
+        const label = this.textEl('span', 'Connected Server URL', 'server-card-label');
+        const display = this.textEl('span', this.serverUrl || 'Not connected', 'server-card-host');
+        display.id = 'connected-server-display';
+        info.appendChild(label);
+        info.appendChild(display);
+        serverCard.appendChild(info);
+        modal.appendChild(serverCard);
+        
+        // Help text
+        const helpText = document.createElement('p');
+        helpText.className = 'server-status-help';
+        if (this.serverUrl) {
+            helpText.innerHTML = `Companion is actively synced with the Jellyfin server at <code>${this.serverUrl}</code>. Live watch party rooms and target active sessions are loaded from this address.`;
+        } else {
+            helpText.innerHTML = `No connection has been configured. JellTogether requires an active link to a Jellyfin server to host and sync watch parties.`;
+        }
+        modal.appendChild(helpText);
+        
+        const actionRow = document.createElement('div');
+        actionRow.className = 'split-actions';
+        
+        actionRow.appendChild(this.button('Change Server', 'primary-command', () => {
+            this.hideModal();
+            this.showServerConnectionModal();
+        }));
+        actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
+        modal.appendChild(actionRow);
+        
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        
+        // Synchronize display indicators immediately
+        this.updateServerIndicator();
+    }
+
+    showServerConnectionModal() {
+        this.showModal('Connected Jellyfin Server', [
+            { id: 'serverUrl', type: 'url', label: 'Server URL', placeholder: 'https://jellyfin.example.com', value: this.serverUrl || this.publicJellyfinUrl || '' }
+        ], [
+            { label: 'Update Server', primary: true, onClick: ({ serverUrl }) => this.updateConnectedServer(serverUrl) },
+            { label: 'Clear Saved Server', danger: true, onClick: () => this.clearConnectedServer() }
+        ]);
+    }
+
+    async updateConnectedServer(serverUrl) {
+        const nextServerUrl = this.normalizeBaseUrl(serverUrl || "");
+        if (!nextServerUrl) {
+            this.showToast("Enter a Jellyfin server URL.", 'error');
+            return;
+        }
+
+        this.serverUrl = nextServerUrl;
+        localStorage.setItem('jelltogether-server-url', nextServerUrl);
+        localStorage.removeItem('jelltogether-auth');
+        this.currentRoom = null;
+        this.currentUser = "Unknown";
+        this.currentJellyfinMediaUserId = "";
+        this.resetRenderCaches();
+        this.updateServerIndicator();
+        this.updateAuthAction();
+        this.showToast("Server updated. Sign in to connect.", 'success');
+        this.showJellyfinSignInModal();
+    }
+
+    async clearConnectedServer() {
+        localStorage.removeItem('jelltogether-server-url');
+        localStorage.removeItem('jelltogether-auth');
+        this.serverUrl = this.isLikelyJellyfinOrigin() ? window.location.origin : "";
+        this.currentRoom = null;
+        this.currentUser = "Unknown";
+        this.currentJellyfinMediaUserId = "";
+        this.resetRenderCaches();
+        this.updateServerIndicator();
+        this.updateAuthAction();
+        this.showToast("Saved server cleared.", 'success');
+    }
+
+    updateVersionLabels() {
+        document.querySelectorAll('[data-plugin-version]').forEach(el => {
+            el.textContent = this.versionLabel(this.pluginVersion);
+        });
+    }
+
+    versionLabel(value = this.pluginVersion) {
+        const label = value || this.pluginVersion;
+        return String(label).toLowerCase().startsWith('v') || label === 'Earlier'
+            ? label
+            : `v${label}`;
+    }
+
+    showChangelogModal() {
+        this.hideModal();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card changelog-modal';
+        modal.appendChild(this.textEl('h3', 'JellTogether Changelog'));
+        modal.appendChild(this.textEl('p', `Current version ${this.versionLabel(this.pluginVersion)}`, 'modal-subtitle'));
+
+        const entries = document.createElement('div');
+        entries.className = 'changelog-list';
+        if (!this.changelog.length) {
+            entries.appendChild(this.textEl('div', 'Sign in to load release notes.', 'loading'));
+        }
+
+        this.changelog.forEach(entry => {
+            const card = document.createElement('article');
+            card.className = 'changelog-entry';
+            const heading = document.createElement('div');
+            heading.className = 'changelog-entry-heading';
+            heading.appendChild(this.textEl('strong', entry.title || 'Release'));
+            heading.appendChild(this.textEl('span', this.versionLabel(entry.version || this.pluginVersion)));
+            card.appendChild(heading);
+            if (entry.date) card.appendChild(this.textEl('em', entry.date));
+
+            const items = document.createElement('ul');
+            (entry.items || []).forEach(item => {
+                const li = document.createElement('li');
+                li.textContent = item;
+                items.appendChild(li);
+            });
+            card.appendChild(items);
+            entries.appendChild(card);
+        });
+        modal.appendChild(entries);
+
+        const actionRow = document.createElement('div');
+        actionRow.className = 'split-actions';
+        actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
+        modal.appendChild(actionRow);
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
     }
 
     async loadCurrentUser() {
@@ -170,7 +406,8 @@ class JellTogetherApp {
         if (token && !headers.has('X-Emby-Token')) {
             headers.set('X-Emby-Token', token);
         }
-        const response = await fetch(url, {
+        const targetUrl = this.apiUrl(url);
+        const response = await fetch(targetUrl, {
             ...options,
             headers,
             credentials: 'same-origin'
@@ -251,15 +488,28 @@ class JellTogetherApp {
     }
 
     showJellyfinSignInModal() {
-        this.showModal('Sign in to Jellyfin', [
+        const fields = [];
+        if (!this.serverUrl || !this.isLikelyJellyfinOrigin()) {
+            fields.push({ id: 'serverUrl', type: 'url', label: 'Jellyfin server URL', placeholder: 'https://jellyfin.example.com', value: this.serverUrl || this.publicJellyfinUrl || '' });
+        }
+        fields.push(
             { id: 'username', type: 'text', label: 'Username', placeholder: 'Jellyfin username' },
             { id: 'password', type: 'password', label: 'Password', placeholder: 'Jellyfin password' }
-        ], [
+        );
+
+        this.showModal('Sign in to Jellyfin', fields, [
             { label: 'Sign In', primary: true, onClick: (values) => this.signInToJellyfin(values) }
         ]);
     }
 
-    async signInToJellyfin({ username, password }) {
+    async signInToJellyfin({ serverUrl, username, password }) {
+        const nextServerUrl = this.normalizeBaseUrl(serverUrl || this.serverUrl || this.publicJellyfinUrl || "");
+        if (nextServerUrl) {
+            this.serverUrl = nextServerUrl;
+            localStorage.setItem('jelltogether-server-url', nextServerUrl);
+            this.updateServerIndicator();
+        }
+
         const name = (username || '').trim();
         if (!name || !password) {
             this.showToast("Enter your Jellyfin username and password.", 'error');
@@ -269,7 +519,7 @@ class JellTogetherApp {
         }
 
         try {
-            const response = await fetch('/Users/AuthenticateByName', {
+            const response = await fetch(this.apiUrl('/Users/AuthenticateByName'), {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: {
@@ -295,7 +545,7 @@ class JellTogetherApp {
 
     jellyfinAuthorizationHeader() {
         const deviceId = this.deviceId();
-        return `MediaBrowser Client="JellTogether Companion", Device="Browser", DeviceId="${deviceId}", Version="1.2.12.0"`;
+        return `MediaBrowser Client="JellTogether Companion", Device="Browser", DeviceId="${deviceId}", Version="1.2.18.0"`;
     }
 
     deviceId() {
@@ -329,6 +579,7 @@ class JellTogetherApp {
         const display = document.getElementById('display-name');
         if (display) display.textContent = 'Signed out';
         this.updateAuthAction();
+        this.updateServerIndicator();
         const lobby = document.getElementById('lobby-view');
         const party = document.getElementById('party-view');
         if (lobby) lobby.style.display = 'block';
@@ -469,6 +720,7 @@ class JellTogetherApp {
             roomCode: this.prop(room, 'roomCode', null, ''),
             ownerId: this.prop(room, 'ownerId', null, ''),
             participants: this.prop(room, 'participants', null, []),
+            participantProfiles: this.prop(room, 'participantProfiles', null, {}),
             coHostIds: this.prop(room, 'coHostIds', null, []),
             permissions: this.prop(room, 'permissions', null, {}),
             queue: this.prop(room, 'queue', null, []).map(item => this.normalizeQueueItem(item)),
@@ -575,6 +827,10 @@ class JellTogetherApp {
     }
 
     hideModal() {
+        if (this.targetsPollInterval) {
+            clearInterval(this.targetsPollInterval);
+            this.targetsPollInterval = null;
+        }
         document.getElementById('app-modal-overlay')?.remove();
     }
 
@@ -635,6 +891,7 @@ class JellTogetherApp {
             const meta = document.createElement('div');
             meta.className = 'meta';
             meta.appendChild(this.textEl('span', `Participants: ${room.participants?.length || 0}`));
+            meta.appendChild(this.textEl('span', this.versionLabel(this.pluginVersion)));
             card.appendChild(meta);
 
             const nowPlaying = this.roomNowPlayingDetails(room);
@@ -1182,7 +1439,10 @@ class JellTogetherApp {
     }
 
     posterUrl(mediaId, height = 420, width = 280) {
-        return mediaId ? `/Items/${encodeURIComponent(mediaId)}/Images/Primary?fillHeight=${height}&fillWidth=${width}&quality=90` : '';
+        if (!mediaId) return '';
+        const token = this.getAccessToken();
+        const tokenParam = token ? `&api_key=${encodeURIComponent(token)}` : '';
+        return this.apiUrl(`/Items/${encodeURIComponent(mediaId)}/Images/Primary?fillHeight=${height}&fillWidth=${width}&quality=90${tokenParam}`);
     }
 
     formatRuntime(ticks) {
@@ -1210,6 +1470,16 @@ class JellTogetherApp {
         modal.appendChild(this.textEl('h3', option.label));
         modal.appendChild(this.textEl('p', 'Choose the movies, seasons, or episodes to add.', 'modal-subtitle'));
 
+        const pickerTools = document.createElement('div');
+        pickerTools.className = 'queue-picker-tools';
+        pickerTools.appendChild(this.button('Select All', 'micro-command primary', () => {
+            list.querySelectorAll('input[type="checkbox"]').forEach(input => { input.checked = true; });
+        }));
+        pickerTools.appendChild(this.button('Deselect All', 'micro-command', () => {
+            list.querySelectorAll('input[type="checkbox"]').forEach(input => { input.checked = false; });
+        }));
+        modal.appendChild(pickerTools);
+
         const list = document.createElement('div');
         list.className = 'queue-picker-list';
         option.items.forEach(item => {
@@ -1232,6 +1502,10 @@ class JellTogetherApp {
         actionRow.className = 'split-actions';
         actionRow.appendChild(this.button('Add Selected', 'primary-command', () => {
             const selected = [...list.querySelectorAll('input:checked')].map(input => option.items.find(item => item.mediaId === input.value)).filter(Boolean);
+            if (!selected.length) {
+                this.showToast("Choose at least one item to add.", 'error');
+                return;
+            }
             this.addMediaGroupToQueue(selected, `${selected.length} item${selected.length === 1 ? '' : 's'} added to queue.`);
         }));
         if (sourceItem) actionRow.appendChild(this.button('Back', 'secondary-command', () => this.showMediaDetails(sourceItem, previousOptions)));
@@ -1585,6 +1859,116 @@ class JellTogetherApp {
         title.textContent = this.currentRoom.nowPlayingTitle
             ? `Now playing: ${this.currentRoom.nowPlayingTitle}`
             : 'No synced media selected';
+
+        const screen = document.getElementById('theater-screen');
+        if (screen) {
+            const canControl = this.canControlPlayback();
+            screen.disabled = !canControl;
+            screen.classList.toggle('is-clickable', canControl);
+            screen.title = canControl ? 'Open theater controls' : 'Only hosts or playback-enabled participants can control the theater screen';
+        }
+    }
+
+    async showTheaterControls() {
+        if (!this.currentRoom) return;
+        if (!this.canControlPlayback()) {
+            this.showToast("Only hosts or playback-enabled participants can control the theater screen.", 'error');
+            return;
+        }
+
+        this.hideModal();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card theater-control-modal';
+        modal.appendChild(this.textEl('h3', 'Theater Controls'));
+        modal.appendChild(this.textEl('p', this.currentRoom.nowPlayingTitle ? `Now playing: ${this.currentRoom.nowPlayingTitle}` : 'Choose queued media or search Jellyfin to start the watch party.', 'modal-subtitle'));
+
+        const grid = document.createElement('div');
+        grid.className = 'theater-control-grid';
+        const playableQueue = (this.currentRoom.queue || []).filter(item => item.mediaId);
+
+        if (playableQueue.length) {
+            const queueCard = document.createElement('section');
+            queueCard.className = 'theater-control-card';
+            queueCard.appendChild(this.textEl('strong', 'Start From Queue'));
+            queueCard.appendChild(this.textEl('span', `${playableQueue.length} playable item${playableQueue.length === 1 ? '' : 's'} ready`));
+            const list = document.createElement('div');
+            list.className = 'theater-queue-list';
+            playableQueue.slice(0, 5).forEach(item => {
+                list.appendChild(this.button(item.title, 'micro-command', () => this.showStartWatchPartyModal(item)));
+            });
+            queueCard.appendChild(list);
+            grid.appendChild(queueCard);
+        }
+
+        const searchCard = document.createElement('section');
+        searchCard.className = 'theater-control-card';
+        searchCard.appendChild(this.textEl('strong', 'Find Media'));
+        searchCard.appendChild(this.textEl('span', 'Search allowed Jellyfin libraries and add something to Up Next.'));
+        searchCard.appendChild(this.button('Search Jellyfin', 'primary-command', () => this.showQueueSearchModal()));
+        grid.appendChild(searchCard);
+
+        const targetCard = document.createElement('section');
+        targetCard.className = 'theater-control-card';
+        targetCard.appendChild(this.textEl('strong', 'Playback Targets'));
+        targetCard.appendChild(this.textEl('span', 'Check which room devices can be started remotely.'));
+        targetCard.appendChild(this.button('View Targets', 'secondary-command', () => this.showPlaybackTargetsModal()));
+        grid.appendChild(targetCard);
+
+        modal.appendChild(grid);
+        const actionRow = document.createElement('div');
+        actionRow.className = 'split-actions';
+        actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
+        modal.appendChild(actionRow);
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+    }
+
+    async showPlaybackTargetsModal() {
+        if (!this.currentRoom || !this.canControlPlayback()) return;
+        this.hideModal();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card playback-modal';
+        modal.appendChild(this.textEl('h3', 'Playback Targets'));
+        modal.appendChild(this.textEl('p', 'Active Jellyfin sessions that can receive watch party playback.', 'modal-subtitle'));
+
+        const targetList = document.createElement('div');
+        targetList.className = 'playback-target-list';
+        targetList.appendChild(this.textEl('div', 'Finding active Jellyfin sessions...', 'loading'));
+        modal.appendChild(targetList);
+
+        const actionRow = document.createElement('div');
+        actionRow.className = 'split-actions';
+        actionRow.appendChild(this.button('Refresh', 'secondary-command', () => refresh()));
+        actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
+        modal.appendChild(actionRow);
+
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        const refresh = async () => {
+            try {
+                const targets = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackTargets`);
+                this.renderPlaybackTargetSummary(targetList, targets || []);
+            } catch (e) {
+                console.error("Playback Target Summary Error:", e);
+                targetList.replaceChildren(this.textEl('div', 'Could not load active Jellyfin sessions.', 'loading'));
+            }
+        };
+
+        await refresh();
+        this.targetsPollInterval = setInterval(refresh, 5000);
     }
 
     async showStartWatchPartyModal(item) {
@@ -1607,8 +1991,14 @@ class JellTogetherApp {
 
         const actionRow = document.createElement('div');
         actionRow.className = 'split-actions';
-        const startButton = this.button('Start', 'primary-command', () => this.startWatchParty(item.id, this.selectedPlaybackTargets(targetList)));
+        const startButton = this.button('Start', 'primary-command', () => {
+            const selected = this.selectedPlaybackTargets(targetList);
+            this.hideModal();
+            this.startWatchParty(item.id, selected);
+        });
         startButton.disabled = true;
+
+        actionRow.appendChild(this.button('Refresh', 'secondary-command', () => refresh()));
         actionRow.appendChild(startButton);
         actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
         modal.appendChild(actionRow);
@@ -1617,35 +2007,131 @@ class JellTogetherApp {
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
 
-        try {
-            const targets = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackTargets`);
-            this.renderPlaybackTargets(targetList, targets || [], startButton);
-        } catch (e) {
-            console.error("Playback Targets Error:", e);
-            targetList.replaceChildren(this.textEl('div', 'Could not load active Jellyfin sessions.', 'loading'));
-        }
+        const refresh = async () => {
+            try {
+                const targets = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackTargets`);
+                const previouslySelected = new Set(this.selectedPlaybackTargets(targetList));
+                this.renderPlaybackTargets(targetList, targets || [], startButton, () => this.showStartWatchPartyModal(item));
+                
+                if (previouslySelected.size > 0) {
+                    targetList.querySelectorAll('input[type="checkbox"]').forEach(input => {
+                        input.checked = previouslySelected.has(input.value);
+                    });
+                    startButton.disabled = this.selectedPlaybackTargets(targetList).length === 0;
+                }
+            } catch (e) {
+                console.error("Playback Targets Error:", e);
+                targetList.replaceChildren(this.textEl('div', 'Could not load active Jellyfin sessions.', 'loading'));
+            }
+        };
+
+        await refresh();
+        this.targetsPollInterval = setInterval(refresh, 5000);
     }
 
-    renderPlaybackTargets(container, targets, startButton) {
+    renderPlaybackTargetSummary(container, targets) {
         this.clear(container);
-        const eligible = targets.filter(target => target.canStartPlayback || (target.isActive && target.supportsRemoteControl && target.supportsMediaControl));
-        if (!eligible.length) {
-            container.appendChild(this.textEl('div', 'No active controllable Jellyfin sessions found for people in this room. Open Jellyfin on Android TV or another client, then try again.', 'loading'));
+        if (!targets.length) {
+            this.renderTargetHelpInstructions(container);
+            return;
+        }
+
+        targets.forEach(target => {
+            const row = document.createElement('div');
+            row.className = target.canStartPlayback ? 'playback-target target-summary is-ready' : 'playback-target target-summary';
+            
+            const text = document.createElement('span');
+            const title = document.createElement('strong');
+            title.textContent = target.userName || target.userId || 'Jellyfin user';
+            if (target.isAndroidTv) title.appendChild(this.textEl('span', 'Android TV', 'target-badge'));
+            text.appendChild(title);
+            text.appendChild(this.textEl('em', [target.client, target.deviceName, target.eligibilityReason].filter(Boolean).join(' • ') || 'Active session'));
+            row.appendChild(text);
+            
+            // Inline Action wrapper (info button + hover tooltip)
+            const actionWrapper = document.createElement('div');
+            actionWrapper.className = 'target-info-wrapper';
+            
+            const infoBtn = document.createElement('button');
+            infoBtn.className = 'target-info-btn';
+            infoBtn.type = 'button';
+            infoBtn.innerHTML = `
+                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                </svg>
+            `;
+            
+            // Hover Tooltip Card
+            const tooltip = document.createElement('div');
+            tooltip.className = 'target-hover-tooltip glass-card';
+            
+            const tooltipTitle = document.createElement('h5');
+            tooltipTitle.textContent = "🔌 Connection Checklist";
+            tooltip.appendChild(tooltipTitle);
+            
+            const tooltipList = document.createElement('ul');
+            tooltipList.className = 'tooltip-checklist';
+            
+            const criteria = [
+                { name: "Awake & Active", ok: target.isActive },
+                { name: "Remote Commands", ok: target.supportsRemoteControl },
+                { name: "Media Controls", ok: target.supportsMediaControl || (target.isAndroidTv && target.canStartPlayback) }
+            ];
+            
+            criteria.forEach(item => {
+                const li = document.createElement('li');
+                li.className = item.ok ? 'checklist-item is-ok' : 'checklist-item is-fail';
+                li.innerHTML = `<span>${item.ok ? '🟢' : '🔴'}</span> <strong>${item.name}</strong>`;
+                tooltipList.appendChild(li);
+            });
+            tooltip.appendChild(tooltipList);
+            
+            const tooltipHint = document.createElement('div');
+            tooltipHint.className = 'tooltip-hint';
+            tooltipHint.textContent = "Click for full troubleshooting guide";
+            tooltip.appendChild(tooltipHint);
+            
+            actionWrapper.appendChild(infoBtn);
+            actionWrapper.appendChild(tooltip);
+            
+            infoBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.showTargetDetailsModal(target, () => this.showPlaybackTargetsModal());
+            });
+
+            row.appendChild(actionWrapper);
+            row.appendChild(this.textEl('span', target.canStartPlayback ? 'Ready' : 'Unavailable', target.canStartPlayback ? 'target-state ready' : 'target-state'));
+            container.appendChild(row);
+        });
+    }
+
+    renderPlaybackTargets(container, targets, startButton, backAction) {
+        this.clear(container);
+        if (!targets.length) {
+            this.renderTargetHelpInstructions(container);
             startButton.disabled = true;
             return;
         }
 
-        eligible.forEach(target => {
+        targets.forEach(target => {
+            const isEligible = target.canStartPlayback || (target.isActive && target.supportsRemoteControl && target.supportsMediaControl);
+            
             const label = document.createElement('label');
-            label.className = 'playback-target';
+            label.className = isEligible ? 'playback-target' : 'playback-target target-summary-disabled';
+            
             const input = document.createElement('input');
             input.type = 'checkbox';
             input.value = target.sessionId;
-            input.checked = true;
+            input.checked = isEligible;
+            input.disabled = !isEligible;
             input.addEventListener('change', () => {
                 startButton.disabled = this.selectedPlaybackTargets(container).length === 0;
             });
             label.appendChild(input);
+
             const text = document.createElement('span');
             const title = document.createElement('strong');
             title.textContent = target.userName || target.userId || 'Jellyfin user';
@@ -1655,15 +2141,264 @@ class JellTogetherApp {
             text.appendChild(title);
             text.appendChild(this.textEl('em', [target.client, target.deviceName, target.eligibilityReason].filter(Boolean).join(' • ') || 'Active session'));
             label.appendChild(text);
+
+            // Inline Action wrapper (info button + hover tooltip)
+            const actionWrapper = document.createElement('div');
+            actionWrapper.className = 'target-info-wrapper';
+            
+            const infoBtn = document.createElement('button');
+            infoBtn.className = 'target-info-btn';
+            infoBtn.type = 'button';
+            infoBtn.innerHTML = `
+                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                </svg>
+            `;
+            
+            const tooltip = document.createElement('div');
+            tooltip.className = 'target-hover-tooltip glass-card';
+            
+            const tooltipTitle = document.createElement('h5');
+            tooltipTitle.textContent = "🔌 Connection Checklist";
+            tooltip.appendChild(tooltipTitle);
+            
+            const tooltipList = document.createElement('ul');
+            tooltipList.className = 'tooltip-checklist';
+            
+            const criteria = [
+                { name: "Awake & Active", ok: target.isActive },
+                { name: "Remote Commands", ok: target.supportsRemoteControl },
+                { name: "Media Controls", ok: target.supportsMediaControl || (target.isAndroidTv && target.canStartPlayback) }
+            ];
+            
+            criteria.forEach(item => {
+                const li = document.createElement('li');
+                li.className = item.ok ? 'checklist-item is-ok' : 'checklist-item is-fail';
+                li.innerHTML = `<span>${item.ok ? '🟢' : '🔴'}</span> <strong>${item.name}</strong>`;
+                tooltipList.appendChild(li);
+            });
+            tooltip.appendChild(tooltipList);
+            
+            const tooltipHint = document.createElement('div');
+            tooltipHint.className = 'tooltip-hint';
+            tooltipHint.textContent = "Click for full troubleshooting guide";
+            tooltip.appendChild(tooltipHint);
+            
+            actionWrapper.appendChild(infoBtn);
+            actionWrapper.appendChild(tooltip);
+            
+            infoBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.showTargetDetailsModal(target, backAction);
+            });
+
+            label.appendChild(actionWrapper);
             container.appendChild(label);
         });
-        startButton.disabled = false;
+        
+        startButton.disabled = this.selectedPlaybackTargets(container).length === 0;
+    }
+
+    showTargetDetailsModal(target, backAction) {
+        this.hideModal();
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card device-details-modal';
+        
+        const header = document.createElement('div');
+        header.className = 'modal-header';
+        
+        const title = this.textEl('h3', '📺 Playback Device Details');
+        const subtitle = this.textEl('p', `${target.userName || 'Jellyfin User'}'s ${target.deviceName || 'Device'}`, 'modal-subtitle');
+        header.appendChild(title);
+        header.appendChild(subtitle);
+        modal.appendChild(header);
+        
+        const badgeRow = document.createElement('div');
+        badgeRow.className = 'device-status-badge-row';
+        const verdictBadge = this.textEl('span', target.canStartPlayback ? 'READY TO CONNECT' : 'CONNECTION UNAVAILABLE', target.canStartPlayback ? 'device-badge is-ready' : 'device-badge is-unavailable');
+        badgeRow.appendChild(verdictBadge);
+        modal.appendChild(badgeRow);
+
+        const detailsGrid = document.createElement('div');
+        detailsGrid.className = 'device-details-grid';
+        
+        const props = [
+            { label: "Client App", value: target.client || "Jellyfin Client" },
+            { label: "Device Name", value: target.deviceName || "Unknown Target" },
+            { label: "Connection Mode", value: target.isAndroidTv ? "Android TV Remote Start" : "Standard Control" },
+            { label: "Session ID", value: target.sessionId ? target.sessionId.slice(0, 8) + '...' : "N/A" }
+        ];
+        
+        props.forEach(p => {
+            const field = document.createElement('div');
+            field.className = 'device-prop-field';
+            const propLabel = this.textEl('label', p.label);
+            const propVal = this.textEl('span', p.value);
+            field.appendChild(propLabel);
+            field.appendChild(propVal);
+            detailsGrid.appendChild(field);
+        });
+        modal.appendChild(detailsGrid);
+        
+        modal.appendChild(this.textEl('h4', '📊 Connection Checklist', 'modal-section-title'));
+        const checklist = this.createDeviceChecklist(target);
+        modal.appendChild(checklist);
+        
+        modal.appendChild(this.textEl('h4', '🛠️ Action Required / Troubleshooting', 'modal-section-title'));
+        
+        const troubleshooting = document.createElement('div');
+        troubleshooting.className = 'device-troubleshooting-card glass-card';
+        
+        let steps = [];
+        if (!target.isActive) {
+            steps = [
+                "<strong>Launch Player App</strong>: Open the Jellyfin app on the target device.",
+                "<strong>Bring to Foreground</strong>: Ensure the Jellyfin player is open, active, and currently in the foreground of the screen.",
+                "<strong>Avoid Standby</strong>: Disable sleep mode or standby timers on your device to keep the connection alive."
+            ];
+        } else if (!target.supportsRemoteControl) {
+            steps = [
+                "<strong>Enable Client Controls</strong>: Open settings in the client app on your device.",
+                "<strong>Enable Remote Control Option</strong>: Go to <strong>Settings</strong> &rarr; <strong>Client Settings</strong> &rarr; toggle **Enable Remote Control** or **Allow remote control of this device** to ON.",
+                "<strong>Restart Client</strong>: Close and reopen the Jellyfin app to reload capabilities."
+            ];
+        } else if (!target.supportsMediaControl && !(target.isAndroidTv && target.canStartPlayback)) {
+            steps = [
+                "<strong>Initialize Player Engine</strong>: Start playing any movie or TV show on the target client for a few seconds.",
+                "<strong>Pause Playback</strong>: Once playing, pause it. This binds the media controls on the server.",
+                "<strong>Use a Supported Player</strong>: Ensure you are not running through an external player like VLC or MPV, which blocks control."
+            ];
+        } else {
+            steps = [
+                "<strong>Ready to Party!</strong>: All connection requirements are fully satisfied.",
+                "<strong>Check Checkbox</strong>: Click 'Cancel' or click outside this modal, select this device, and click 'Start watch party'!"
+            ];
+        }
+        
+        const stepList = document.createElement('ol');
+        stepList.className = 'trouble-steps-list';
+        steps.forEach(s => {
+            const li = document.createElement('li');
+            li.innerHTML = s;
+            stepList.appendChild(li);
+        });
+        troubleshooting.appendChild(stepList);
+        modal.appendChild(troubleshooting);
+        
+        const actionRow = document.createElement('div');
+        actionRow.className = 'split-actions';
+        if (backAction) {
+            actionRow.appendChild(this.button('Back', 'secondary-command', () => {
+                this.hideModal();
+                backAction();
+            }));
+        }
+        actionRow.appendChild(this.button('Cancel', 'secondary-command', () => this.hideModal()));
+        modal.appendChild(actionRow);
+        
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+    }
+    
+    createDeviceChecklist(target) {
+        const items = [
+            {
+                name: "Client Awake & Active",
+                ok: target.isActive,
+                desc: target.isActive ? "App is awake and online." : "App is closed, asleep, or minimized."
+            },
+            {
+                name: "Remote Control Capabilities",
+                ok: target.supportsRemoteControl,
+                desc: target.supportsRemoteControl ? "Remote control allowed by client settings." : "Remote control settings disabled/blocked in client."
+            },
+            {
+                name: "Media Player Integration",
+                ok: target.supportsMediaControl || (target.isAndroidTv && target.canStartPlayback),
+                desc: target.supportsMediaControl ? "Media player engine active and ready." : (target.isAndroidTv && target.canStartPlayback ? "Allowed (Android TV Remote-Start Mode)" : "Player engine idle. Play something first.")
+            }
+        ];
+        
+        const list = document.createElement('div');
+        list.className = 'device-checklist-box';
+        
+        items.forEach(item => {
+            const row = document.createElement('div');
+            row.className = item.ok ? 'checklist-row is-ok' : 'checklist-row is-fail';
+            
+            const icon = document.createElement('span');
+            icon.className = 'checklist-row-icon';
+            icon.textContent = item.ok ? '🟢' : '🔴';
+            
+            const content = document.createElement('div');
+            content.className = 'checklist-row-copy';
+            
+            const label = document.createElement('strong');
+            label.textContent = item.name;
+            
+            const desc = document.createElement('p');
+            desc.textContent = item.desc;
+            
+            content.appendChild(label);
+            content.appendChild(desc);
+            
+            row.appendChild(icon);
+            row.appendChild(content);
+            list.appendChild(row);
+        });
+        
+        return list;
     }
 
     selectedPlaybackTargets(container) {
         return [...container.querySelectorAll('input[type="checkbox"]:checked')]
             .map(input => input.value)
             .filter(Boolean);
+    }
+
+    renderTargetHelpInstructions(container) {
+        this.clear(container);
+        const card = document.createElement('div');
+        card.className = 'target-help-card glass-card';
+        
+        const title = this.textEl('h4', '📺 How to Connect Your Player');
+        card.appendChild(title);
+        
+        const desc = this.textEl('p', "JellTogether uses Jellyfin's remote-control feature to sync playback. To connect a device, follow these quick steps:");
+        card.appendChild(desc);
+        
+        const list = document.createElement('ul');
+        list.className = 'help-list';
+        
+        const steps = [
+            '<strong>Launch Jellyfin</strong>: Open the official Jellyfin app on your TV, desktop player, or a browser tab.',
+            '<strong>Match Your Account</strong>: Verify that the device is logged into the exact same Jellyfin user account.',
+            '<strong>Keep Active</strong>: Ensure the Jellyfin app is open and running in the foreground on your screen.',
+            '<strong>Wake Connection</strong>: If a device is not showing up, wake it up by navigating to the home screen or playing a short video.',
+            '<strong>Android TV</strong>: Enable Android TV targets in the JellTogether dashboard settings.'
+        ];
+        
+        steps.forEach(step => {
+            const li = document.createElement('li');
+            li.innerHTML = step;
+            list.appendChild(li);
+        });
+        
+        card.appendChild(list);
+        
+        const note = this.textEl('div', '🔄 Connection list updates automatically every 5 seconds.', 'help-note');
+        card.appendChild(note);
+        
+        container.appendChild(card);
     }
 
     async startWatchParty(itemId, targetSessionIds) {
@@ -1832,6 +2567,8 @@ class JellTogetherApp {
         const [userId] = match;
         return {
             userId,
+            displayName: this.participantDisplayName(userId),
+            mediaUserId: this.participantMediaUserId(userId),
             role: this.participantRole(userId),
             canChat: this.currentRoom.permissions?.[userId]?.canChat !== false,
             canControlPlayback: this.currentRoom.permissions?.[userId]?.canControlPlayback === true
@@ -1845,19 +2582,23 @@ class JellTogetherApp {
     }
 
     participantInitials(userId) {
-        const parts = String(userId || '?').split(/[\s._@-]+/).filter(Boolean);
-        const letters = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : String(userId || '?').slice(0, 2);
+        const label = this.participantDisplayName(userId) || userId;
+        const parts = String(label || '?').split(/[\s._@-]+/).filter(Boolean);
+        const letters = parts.length > 1 ? `${parts[0][0]}${parts[1][0]}` : String(label || '?').slice(0, 2);
         return letters.toUpperCase();
     }
 
     participantAvatar(userId, className) {
         const wrapper = this.textEl('span', this.participantInitials(userId), `${className} avatar-fallback`);
-        if (!userId || userId === 'Unknown') return wrapper;
+        const mediaUserId = this.participantMediaUserId(userId);
+        if (!mediaUserId || userId === 'Unknown') return wrapper;
 
         const image = document.createElement('img');
         image.alt = '';
         image.loading = 'lazy';
-        image.src = `/Users/${encodeURIComponent(userId)}/Images/Primary?fillHeight=96&fillWidth=96&quality=90`;
+        const token = this.getAccessToken();
+        const tokenParam = token ? `&api_key=${encodeURIComponent(token)}` : '';
+        image.src = this.apiUrl(`/Users/${encodeURIComponent(mediaUserId)}/Images/Primary?fillHeight=160&fillWidth=160&quality=90${tokenParam}`);
         image.onload = () => {
             wrapper.textContent = '';
             wrapper.classList.remove('avatar-fallback');
@@ -1865,6 +2606,22 @@ class JellTogetherApp {
         };
         image.onerror = () => image.remove();
         return wrapper;
+    }
+
+    participantProfile(userId) {
+        const profiles = this.currentRoom?.participantProfiles || {};
+        return profiles[userId] || profiles[String(userId || '').toLowerCase()] || null;
+    }
+
+    participantDisplayName(userId) {
+        return this.participantProfile(userId)?.displayName || userId || 'Unknown';
+    }
+
+    participantMediaUserId(userId) {
+        const profile = this.participantProfile(userId);
+        if (profile?.mediaUserId) return profile.mediaUserId;
+        if (userId === this.currentUser && this.currentJellyfinMediaUserId) return this.currentJellyfinMediaUserId;
+        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(userId || '')) ? userId : '';
     }
 
     async moveToSeat(seatIndex) {
@@ -1889,11 +2646,20 @@ class JellTogetherApp {
         const modal = document.createElement('div');
         modal.id = 'app-modal';
         modal.className = 'app-modal glass-card seat-modal';
-        modal.appendChild(this.textEl('h3', `Seat ${seatIndex + 1}`));
 
-        modal.appendChild(this.participantAvatar(occupant.userId, 'seat-modal-avatar'));
-        modal.appendChild(this.textEl('strong', occupant.userId, 'seat-modal-name'));
-        modal.appendChild(this.textEl('span', occupant.role, `role-badge ${occupant.role === 'Host' ? 'role-owner' : occupant.role === 'Co-host' ? 'role-cohost' : ''}`));
+        const header = document.createElement('div');
+        header.className = 'seat-modal-header';
+        header.appendChild(this.participantAvatar(occupant.userId, 'seat-modal-avatar'));
+        const copy = document.createElement('div');
+        copy.className = 'seat-modal-copy';
+        copy.appendChild(this.textEl('span', `Seat ${seatIndex + 1}`, 'eyebrow'));
+        copy.appendChild(this.textEl('strong', occupant.displayName || occupant.userId, 'seat-modal-name'));
+        if (occupant.displayName && occupant.displayName !== occupant.userId) {
+            copy.appendChild(this.textEl('em', occupant.userId, 'seat-modal-id'));
+        }
+        copy.appendChild(this.textEl('span', occupant.role, `role-badge ${occupant.role === 'Host' ? 'role-owner' : occupant.role === 'Co-host' ? 'role-cohost' : ''}`));
+        header.appendChild(copy);
+        modal.appendChild(header);
 
         const details = document.createElement('div');
         details.className = 'seat-detail-grid';
@@ -1908,7 +2674,7 @@ class JellTogetherApp {
             actionRow.appendChild(this.button('Send wave', 'secondary-command', () => {
                 this.hideModal();
                 this.addReaction('👋');
-                this.showToast(`Waved to ${occupant.userId}.`, 'success');
+                this.showToast(`Waved to ${occupant.displayName || occupant.userId}.`, 'success');
             }));
         }
         actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));

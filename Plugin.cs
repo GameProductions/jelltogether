@@ -68,6 +68,26 @@ namespace JellTogether.Plugin
                 {
                     Name = "banner.png",
                     EmbeddedResourcePath = GetType().Namespace + ".Web.banner.png"
+                },
+                new PluginPageInfo
+                {
+                    Name = "favicon.png",
+                    EmbeddedResourcePath = WebResourcePrefix + ".favicon.png"
+                },
+                new PluginPageInfo
+                {
+                    Name = "icon-192.png",
+                    EmbeddedResourcePath = WebResourcePrefix + ".icon-192.png"
+                },
+                new PluginPageInfo
+                {
+                    Name = "icon-512.png",
+                    EmbeddedResourcePath = WebResourcePrefix + ".icon-512.png"
+                },
+                new PluginPageInfo
+                {
+                    Name = "manifest.json",
+                    EmbeddedResourcePath = WebResourcePrefix + ".manifest.json"
                 }
             };
         }

@@ -1,0 +1,21 @@
+{
+  "name": "JellTogether",
+  "short_name": "JellTogether",
+  "description": "The ultimate social watch party plugin for Jellyfin.",
+  "start_url": "Companion",
+  "display": "standalone",
+  "background_color": "#0d0e15",
+  "theme_color": "#8c44f7",
+  "icons": [
+    {
+      "src": "configurationpage?name=icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "configurationpage?name=icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

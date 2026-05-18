@@ -159,6 +159,7 @@ namespace JellTogether.Plugin.Api
             return Ok(new
             {
                 publicJellyfinUrl = NormalizeBaseUrl(config?.PublicJellyfinUrl),
+                serverUrl = RequestServerUrl(),
                 publicCompanionUrl = NormalizeBaseUrl(config?.PublicCompanionUrl),
                 enabledLibraryIds = config?.EnabledLibraryIds ?? new List<string>(),
                 allowQueueVotingByDefault = config?.AllowQueueVotingByDefault ?? true,
@@ -167,6 +168,8 @@ namespace JellTogether.Plugin.Api
                 allowAndroidTvPlaybackTargets = config?.AllowAndroidTvPlaybackTargets ?? true,
                 persistRoomHistory = config?.PersistRoomHistory ?? true,
                 defaultInviteExpirationHours = config?.DefaultInviteExpirationHours ?? 24,
+                pluginVersion = PluginVersion(),
+                changelog = ChangelogEntries(),
                 canSavePublicAccessSettings = IsElevatedUser()
             });
         }
@@ -212,7 +215,9 @@ namespace JellTogether.Plugin.Api
                 allowParticipantInvitesByDefault = config?.AllowParticipantInvitesByDefault ?? true,
                 allowAndroidTvPlaybackTargets = config?.AllowAndroidTvPlaybackTargets ?? true,
                 persistRoomHistory = config?.PersistRoomHistory ?? true,
-                defaultInviteExpirationHours = config?.DefaultInviteExpirationHours ?? 24
+                defaultInviteExpirationHours = config?.DefaultInviteExpirationHours ?? 24,
+                pluginVersion = PluginVersion(),
+                changelog = ChangelogEntries()
             });
         }
 
@@ -935,6 +940,7 @@ namespace JellTogether.Plugin.Api
         private JellTogetherRoom RoomForUser(JellTogetherRoom room)
         {
             room.DiscordBotToken = null;
+            room.ParticipantProfiles = ParticipantProfilesForRoom(room);
 
             if (room.OwnerId != CurrentUserId && !room.CoHostIds.Contains(CurrentUserId))
             {
@@ -943,6 +949,25 @@ namespace JellTogether.Plugin.Api
             }
 
             return room;
+        }
+
+        private Dictionary<string, ParticipantProfile> ParticipantProfilesForRoom(JellTogetherRoom room)
+        {
+            return room.Participants
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(
+                    participant => participant,
+                    participant =>
+                    {
+                        var session = _sessionManager.Sessions.FirstOrDefault(activeSession => SessionMatchesUser(activeSession, participant));
+                        return new ParticipantProfile
+                        {
+                            UserId = participant,
+                            DisplayName = session?.UserName ?? participant,
+                            MediaUserId = session?.UserId.ToString("D") ?? (Guid.TryParse(participant, out var participantGuid) ? participantGuid.ToString("D") : string.Empty)
+                        };
+                    },
+                    StringComparer.OrdinalIgnoreCase);
         }
 
         private List<PlaybackTargetDto> PlaybackTargetsForRoom(JellTogetherRoom room)
@@ -1112,13 +1137,11 @@ namespace JellTogether.Plugin.Api
 
             using var reader = new StreamReader(stream);
             var fragment = reader.ReadToEnd();
-            var basePath = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
-            var resourceBase = $"{basePath}/web/configurationpage?name=";
-            fragment = fragment.Replace("configurationpage?name=", resourceBase, StringComparison.Ordinal);
 
             var queryScript = string.IsNullOrWhiteSpace(code)
                 ? string.Empty
                 : $"<script>window.JELL_TOGETHER_INVITE_CODE = {System.Text.Json.JsonSerializer.Serialize(code.Trim())};</script>";
+            var serverScript = $"<script>window.JELL_TOGETHER_SERVER_URL = {System.Text.Json.JsonSerializer.Serialize(RequestServerUrl())};</script>";
 
             var html = $@"<!DOCTYPE html>
 <html lang=""en"">
@@ -1126,12 +1149,21 @@ namespace JellTogether.Plugin.Api
     <meta charset=""UTF-8"">
     <meta name=""viewport"" content=""width=device-width, initial-scale=1.0"">
     <title>JellTogether | Jellyfin Watch Party Companion</title>
+    <link rel=""icon"" type=""image/png"" href=""configurationpage?name=favicon.png"">
+    <link rel=""apple-touch-icon"" href=""configurationpage?name=icon-192.png"">
+    <link rel=""manifest"" href=""configurationpage?name=manifest.json"">
+    <meta name=""theme-color"" content=""#8c44f7"">
 </head>
 <body class=""jelltogether-standalone"">
+{serverScript}
 {queryScript}
 {fragment}
 </body>
 </html>";
+
+            var basePath = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
+            var resourceBase = $"{basePath}/web/configurationpage?name=";
+            html = html.Replace("configurationpage?name=", resourceBase, StringComparison.Ordinal);
 
             return Content(html, "text/html");
         }
@@ -1191,6 +1223,77 @@ namespace JellTogether.Plugin.Api
         private static string WebConfigurationPageUrl(string baseUrl, string? code)
         {
             return AddInviteCode($"{NormalizeBaseUrl(baseUrl)}/jelltogether/Companion", code);
+        }
+
+        private string RequestServerUrl()
+        {
+            var scheme = Request.Scheme;
+            if (Request.Headers.TryGetValue("X-Forwarded-Proto", out var proto) && !string.IsNullOrEmpty(proto))
+            {
+                scheme = proto.ToString();
+            }
+            var basePath = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
+            return NormalizeBaseUrl($"{scheme}://{Request.Host}{basePath}");
+        }
+
+        private static string PluginVersion()
+        {
+            return typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "0.0.0.0";
+        }
+
+        private static List<object> ChangelogEntries()
+        {
+            var markdown = ReadChangelogMarkdown();
+            if (string.IsNullOrWhiteSpace(markdown)) return new List<object>();
+
+            var entries = new List<object>();
+            var currentVersion = PluginVersion();
+            string date = string.Empty;
+            string title = string.Empty;
+            var items = new List<string>();
+
+            void Flush()
+            {
+                if (string.IsNullOrWhiteSpace(title) && items.Count == 0) return;
+                entries.Add(new
+                {
+                    version = entries.Count == 0 ? currentVersion : "Earlier",
+                    date,
+                    title,
+                    items = items.ToArray()
+                });
+                items = new List<string>();
+            }
+
+            foreach (var rawLine in markdown.Split('\n'))
+            {
+                var line = rawLine.Trim();
+                var heading = Regex.Match(line, @"^##\s+\[(?<date>[^\]]+)\]\s*-\s*(?<title>.+)$");
+                if (heading.Success)
+                {
+                    Flush();
+                    date = heading.Groups["date"].Value.Trim();
+                    title = heading.Groups["title"].Value.Trim();
+                    continue;
+                }
+
+                if (line.StartsWith("- ", StringComparison.Ordinal))
+                {
+                    items.Add(line[2..].Trim());
+                }
+            }
+
+            Flush();
+            return entries.Take(8).Cast<object>().ToList();
+        }
+
+        private static string ReadChangelogMarkdown()
+        {
+            var assembly = typeof(Plugin).Assembly;
+            using var stream = assembly.GetManifestResourceStream("JellTogether.Plugin.CHANGELOG.md");
+            if (stream == null) return string.Empty;
+            using var reader = new StreamReader(stream);
+            return reader.ReadToEnd();
         }
 
         private static bool IsLocalOrPrivateHost(string host)
