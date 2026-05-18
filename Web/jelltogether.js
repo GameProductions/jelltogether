@@ -7,7 +7,7 @@ class JellTogetherApp {
         this.enabledLibraryIds = [];
         this.allowQueueVotingByDefault = true;
         this.allowParticipantQueueAdds = true;
-        this.pluginVersion = "1.2.17.0";
+        this.pluginVersion = "1.2.18.0";
         this.changelog = [];
         this.currentRoom = null;
         this.currentUser = "Unknown";
@@ -474,7 +474,7 @@ class JellTogetherApp {
 
     jellyfinAuthorizationHeader() {
         const deviceId = this.deviceId();
-        return `MediaBrowser Client="JellTogether Companion", Device="Browser", DeviceId="${deviceId}", Version="1.2.17.0"`;
+        return `MediaBrowser Client="JellTogether Companion", Device="Browser", DeviceId="${deviceId}", Version="1.2.18.0"`;
     }
 
     deviceId() {
@@ -1968,6 +1968,7 @@ class JellTogetherApp {
         targets.forEach(target => {
             const row = document.createElement('div');
             row.className = target.canStartPlayback ? 'playback-target target-summary is-ready' : 'playback-target target-summary';
+            
             const text = document.createElement('span');
             const title = document.createElement('strong');
             title.textContent = target.userName || target.userId || 'Jellyfin user';
@@ -1975,6 +1976,62 @@ class JellTogetherApp {
             text.appendChild(title);
             text.appendChild(this.textEl('em', [target.client, target.deviceName, target.eligibilityReason].filter(Boolean).join(' • ') || 'Active session'));
             row.appendChild(text);
+            
+            // Inline Action wrapper (info button + hover tooltip)
+            const actionWrapper = document.createElement('div');
+            actionWrapper.className = 'target-info-wrapper';
+            
+            const infoBtn = document.createElement('button');
+            infoBtn.className = 'target-info-btn';
+            infoBtn.type = 'button';
+            infoBtn.innerHTML = `
+                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                </svg>
+            `;
+            
+            // Hover Tooltip Card
+            const tooltip = document.createElement('div');
+            tooltip.className = 'target-hover-tooltip glass-card';
+            
+            const tooltipTitle = document.createElement('h5');
+            tooltipTitle.textContent = "🔌 Connection Checklist";
+            tooltip.appendChild(tooltipTitle);
+            
+            const tooltipList = document.createElement('ul');
+            tooltipList.className = 'tooltip-checklist';
+            
+            const criteria = [
+                { name: "Awake & Active", ok: target.isActive },
+                { name: "Remote Commands", ok: target.supportsRemoteControl },
+                { name: "Media Controls", ok: target.supportsMediaControl || (target.isAndroidTv && target.canStartPlayback) }
+            ];
+            
+            criteria.forEach(item => {
+                const li = document.createElement('li');
+                li.className = item.ok ? 'checklist-item is-ok' : 'checklist-item is-fail';
+                li.innerHTML = `<span>${item.ok ? '🟢' : '🔴'}</span> <strong>${item.name}</strong>`;
+                tooltipList.appendChild(li);
+            });
+            tooltip.appendChild(tooltipList);
+            
+            const tooltipHint = document.createElement('div');
+            tooltipHint.className = 'tooltip-hint';
+            tooltipHint.textContent = "Click for full troubleshooting guide";
+            tooltip.appendChild(tooltipHint);
+            
+            actionWrapper.appendChild(infoBtn);
+            actionWrapper.appendChild(tooltip);
+            
+            infoBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.showTargetDetailsModal(target);
+            });
+
+            row.appendChild(actionWrapper);
             row.appendChild(this.textEl('span', target.canStartPlayback ? 'Ready' : 'Unavailable', target.canStartPlayback ? 'target-state ready' : 'target-state'));
             container.appendChild(row);
         });
@@ -1982,24 +2039,28 @@ class JellTogetherApp {
 
     renderPlaybackTargets(container, targets, startButton) {
         this.clear(container);
-        const eligible = targets.filter(target => target.canStartPlayback || (target.isActive && target.supportsRemoteControl && target.supportsMediaControl));
-        if (!eligible.length) {
+        if (!targets.length) {
             this.renderTargetHelpInstructions(container);
             startButton.disabled = true;
             return;
         }
 
-        eligible.forEach(target => {
+        targets.forEach(target => {
+            const isEligible = target.canStartPlayback || (target.isActive && target.supportsRemoteControl && target.supportsMediaControl);
+            
             const label = document.createElement('label');
-            label.className = 'playback-target';
+            label.className = isEligible ? 'playback-target' : 'playback-target target-summary-disabled';
+            
             const input = document.createElement('input');
             input.type = 'checkbox';
             input.value = target.sessionId;
-            input.checked = true;
+            input.checked = isEligible;
+            input.disabled = !isEligible;
             input.addEventListener('change', () => {
                 startButton.disabled = this.selectedPlaybackTargets(container).length === 0;
             });
             label.appendChild(input);
+
             const text = document.createElement('span');
             const title = document.createElement('strong');
             title.textContent = target.userName || target.userId || 'Jellyfin user';
@@ -2009,9 +2070,216 @@ class JellTogetherApp {
             text.appendChild(title);
             text.appendChild(this.textEl('em', [target.client, target.deviceName, target.eligibilityReason].filter(Boolean).join(' • ') || 'Active session'));
             label.appendChild(text);
+
+            // Inline Action wrapper (info button + hover tooltip)
+            const actionWrapper = document.createElement('div');
+            actionWrapper.className = 'target-info-wrapper';
+            
+            const infoBtn = document.createElement('button');
+            infoBtn.className = 'target-info-btn';
+            infoBtn.type = 'button';
+            infoBtn.innerHTML = `
+                <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2.5" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <line x1="12" y1="16" x2="12" y2="12"></line>
+                    <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                </svg>
+            `;
+            
+            const tooltip = document.createElement('div');
+            tooltip.className = 'target-hover-tooltip glass-card';
+            
+            const tooltipTitle = document.createElement('h5');
+            tooltipTitle.textContent = "🔌 Connection Checklist";
+            tooltip.appendChild(tooltipTitle);
+            
+            const tooltipList = document.createElement('ul');
+            tooltipList.className = 'tooltip-checklist';
+            
+            const criteria = [
+                { name: "Awake & Active", ok: target.isActive },
+                { name: "Remote Commands", ok: target.supportsRemoteControl },
+                { name: "Media Controls", ok: target.supportsMediaControl || (target.isAndroidTv && target.canStartPlayback) }
+            ];
+            
+            criteria.forEach(item => {
+                const li = document.createElement('li');
+                li.className = item.ok ? 'checklist-item is-ok' : 'checklist-item is-fail';
+                li.innerHTML = `<span>${item.ok ? '🟢' : '🔴'}</span> <strong>${item.name}</strong>`;
+                tooltipList.appendChild(li);
+            });
+            tooltip.appendChild(tooltipList);
+            
+            const tooltipHint = document.createElement('div');
+            tooltipHint.className = 'tooltip-hint';
+            tooltipHint.textContent = "Click for full troubleshooting guide";
+            tooltip.appendChild(tooltipHint);
+            
+            actionWrapper.appendChild(infoBtn);
+            actionWrapper.appendChild(tooltip);
+            
+            infoBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                this.showTargetDetailsModal(target);
+            });
+
+            label.appendChild(actionWrapper);
             container.appendChild(label);
         });
-        startButton.disabled = false;
+        
+        startButton.disabled = this.selectedPlaybackTargets(container).length === 0;
+    }
+
+    showTargetDetailsModal(target) {
+        this.hideModal();
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card device-details-modal';
+        
+        const header = document.createElement('div');
+        header.className = 'modal-header';
+        
+        const title = this.textEl('h3', '📺 Playback Device Details');
+        const subtitle = this.textEl('p', `${target.userName || 'Jellyfin User'}'s ${target.deviceName || 'Device'}`, 'modal-subtitle');
+        header.appendChild(title);
+        header.appendChild(subtitle);
+        modal.appendChild(header);
+        
+        const badgeRow = document.createElement('div');
+        badgeRow.className = 'device-status-badge-row';
+        const verdictBadge = this.textEl('span', target.canStartPlayback ? 'READY TO CONNECT' : 'CONNECTION UNAVAILABLE', target.canStartPlayback ? 'device-badge is-ready' : 'device-badge is-unavailable');
+        badgeRow.appendChild(verdictBadge);
+        modal.appendChild(badgeRow);
+
+        const detailsGrid = document.createElement('div');
+        detailsGrid.className = 'device-details-grid';
+        
+        const props = [
+            { label: "Client App", value: target.client || "Jellyfin Client" },
+            { label: "Device Name", value: target.deviceName || "Unknown Target" },
+            { label: "Connection Mode", value: target.isAndroidTv ? "Android TV Remote Start" : "Standard Control" },
+            { label: "Session ID", value: target.sessionId ? target.sessionId.slice(0, 8) + '...' : "N/A" }
+        ];
+        
+        props.forEach(p => {
+            const field = document.createElement('div');
+            field.className = 'device-prop-field';
+            const propLabel = this.textEl('label', p.label);
+            const propVal = this.textEl('span', p.value);
+            field.appendChild(propLabel);
+            field.appendChild(propVal);
+            detailsGrid.appendChild(field);
+        });
+        modal.appendChild(detailsGrid);
+        
+        modal.appendChild(this.textEl('h4', '📊 Connection Checklist', 'modal-section-title'));
+        const checklist = this.createDeviceChecklist(target);
+        modal.appendChild(checklist);
+        
+        modal.appendChild(this.textEl('h4', '🛠️ Action Required / Troubleshooting', 'modal-section-title'));
+        
+        const troubleshooting = document.createElement('div');
+        troubleshooting.className = 'device-troubleshooting-card glass-card';
+        
+        let steps = [];
+        if (!target.isActive) {
+            steps = [
+                "<strong>Launch Player App</strong>: Open the Jellyfin app on the target device.",
+                "<strong>Bring to Foreground</strong>: Ensure the Jellyfin player is open, active, and currently in the foreground of the screen.",
+                "<strong>Avoid Standby</strong>: Disable sleep mode or standby timers on your device to keep the connection alive."
+            ];
+        } else if (!target.supportsRemoteControl) {
+            steps = [
+                "<strong>Enable Client Controls</strong>: Open settings in the client app on your device.",
+                "<strong>Enable Remote Control Option</strong>: Go to <strong>Settings</strong> &rarr; <strong>Client Settings</strong> &rarr; toggle **Enable Remote Control** or **Allow remote control of this device** to ON.",
+                "<strong>Restart Client</strong>: Close and reopen the Jellyfin app to reload capabilities."
+            ];
+        } else if (!target.supportsMediaControl && !(target.isAndroidTv && target.canStartPlayback)) {
+            steps = [
+                "<strong>Initialize Player Engine</strong>: Start playing any movie or TV show on the target client for a few seconds.",
+                "<strong>Pause Playback</strong>: Once playing, pause it. This binds the media controls on the server.",
+                "<strong>Use a Supported Player</strong>: Ensure you are not running through an external player like VLC or MPV, which blocks control."
+            ];
+        } else {
+            steps = [
+                "<strong>Ready to Party!</strong>: All connection requirements are fully satisfied.",
+                "<strong>Check Checkbox</strong>: Click 'Cancel' or click outside this modal, select this device, and click 'Start watch party'!"
+            ];
+        }
+        
+        const stepList = document.createElement('ol');
+        stepList.className = 'trouble-steps-list';
+        steps.forEach(s => {
+            const li = document.createElement('li');
+            li.innerHTML = s;
+            stepList.appendChild(li);
+        });
+        troubleshooting.appendChild(stepList);
+        modal.appendChild(troubleshooting);
+        
+        const actionRow = document.createElement('div');
+        actionRow.className = 'modal-actions';
+        actionRow.appendChild(this.button('Cancel', 'secondary-command', () => this.hideModal()));
+        modal.appendChild(actionRow);
+        
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+    }
+    
+    createDeviceChecklist(target) {
+        const items = [
+            {
+                name: "Client Awake & Active",
+                ok: target.isActive,
+                desc: target.isActive ? "App is awake and online." : "App is closed, asleep, or minimized."
+            },
+            {
+                name: "Remote Control Capabilities",
+                ok: target.supportsRemoteControl,
+                desc: target.supportsRemoteControl ? "Remote control allowed by client settings." : "Remote control settings disabled/blocked in client."
+            },
+            {
+                name: "Media Player Integration",
+                ok: target.supportsMediaControl || (target.isAndroidTv && target.canStartPlayback),
+                desc: target.supportsMediaControl ? "Media player engine active and ready." : (target.isAndroidTv && target.canStartPlayback ? "Allowed (Android TV Remote-Start Mode)" : "Player engine idle. Play something first.")
+            }
+        ];
+        
+        const list = document.createElement('div');
+        list.className = 'device-checklist-box';
+        
+        items.forEach(item => {
+            const row = document.createElement('div');
+            row.className = item.ok ? 'checklist-row is-ok' : 'checklist-row is-fail';
+            
+            const icon = document.createElement('span');
+            icon.className = 'checklist-row-icon';
+            icon.textContent = item.ok ? '🟢' : '🔴';
+            
+            const content = document.createElement('div');
+            content.className = 'checklist-row-copy';
+            
+            const label = document.createElement('strong');
+            label.textContent = item.name;
+            
+            const desc = document.createElement('p');
+            desc.textContent = item.desc;
+            
+            content.appendChild(label);
+            content.appendChild(desc);
+            
+            row.appendChild(icon);
+            row.appendChild(content);
+            list.appendChild(row);
+        });
+        
+        return list;
     }
 
     selectedPlaybackTargets(container) {
