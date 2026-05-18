@@ -20,15 +20,28 @@ ZIP_NAME = f"jelltogether_{VERSION}.zip"
 ZIP_PATH = os.path.join(BASE_DIR, ZIP_NAME)
 REPO_JSON_PATH = os.path.join(BASE_DIR, "repository.json")
 MANIFEST_JSON_PATH = os.path.join(BASE_DIR, "manifest.json")
-CHANGELOG = """Add target device connection diagnostics, status checklists, and interactive troubleshooting guides.
+CHANGELOG = """Establish compile-time single source of truth versioning, upgrade server indicators, and support playback modal back navigation.
+
+- Consolidated system-wide version attributes into a single root-level version.txt file parsed dynamically during MSBuild compilation and release packaging.
+- Refactored the header server details card into an ultra-compact status button with real-time glowing connectivity indicators to resolve URL spacing issues.
+- Relocated long server connection host URLs into a gorgeous, dedicated Server Status details overlay modal.
+- Integrated full-stack back button navigation support inside diagnostic Playback Target details modals, resolving UI routing loops."""
+
+HISTORICAL_RELEASES = [
+    {
+        "version": "1.2.18.0",
+        "changelog": """Add target device connection diagnostics, status checklists, and interactive troubleshooting guides.
 
 - Added an info button next to each playback target device in the dashboard summary and session initializer.
 - Added a non-intrusive hover tooltip checklist showing awake state, remote command support, and player engine bindings.
 - Added a gorgeous clickable glassmorphic diagnostic modal showing technical session fields.
 - Added custom-tailored step-by-step resolution advice for failed connection criteria.
-- Kept ineligible target devices visible in selection views with a clean, low-opacity disabled style to allow real-time diagnostic troubleshooting."""
-
-HISTORICAL_RELEASES = [
+- Kept ineligible target devices visible in selection views with a clean, low-opacity disabled style to allow real-time diagnostic troubleshooting.""",
+        "targetAbi": TARGET_ABI,
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.2.18.0/jelltogether_1.2.18.0.zip",
+        "checksum": "B7CCCB4568E6616E1D1AF0E971A66230",
+        "timestamp": "2026-05-18T01:58:00Z",
+    },
     {
         "version": "1.2.17.0",
         "changelog": """A maintenance patch release to structure release archives on disk and update build dependencies.
