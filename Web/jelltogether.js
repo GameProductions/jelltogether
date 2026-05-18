@@ -1943,7 +1943,7 @@ class JellTogetherApp {
             try {
                 const targets = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackTargets`);
                 const previouslySelected = new Set(this.selectedPlaybackTargets(targetList));
-                this.renderPlaybackTargets(targetList, targets || [], startButton);
+                this.renderPlaybackTargets(targetList, targets || [], startButton, () => this.showStartWatchPartyModal(item));
                 
                 if (previouslySelected.size > 0) {
                     targetList.querySelectorAll('input[type="checkbox"]').forEach(input => {
@@ -2031,7 +2031,7 @@ class JellTogetherApp {
             infoBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                this.showTargetDetailsModal(target);
+                this.showTargetDetailsModal(target, () => this.showPlaybackTargetsModal());
             });
 
             row.appendChild(actionWrapper);
@@ -2040,7 +2040,7 @@ class JellTogetherApp {
         });
     }
 
-    renderPlaybackTargets(container, targets, startButton) {
+    renderPlaybackTargets(container, targets, startButton, backAction) {
         this.clear(container);
         if (!targets.length) {
             this.renderTargetHelpInstructions(container);
@@ -2124,7 +2124,7 @@ class JellTogetherApp {
             infoBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-                this.showTargetDetailsModal(target);
+                this.showTargetDetailsModal(target, backAction);
             });
 
             label.appendChild(actionWrapper);
@@ -2134,7 +2134,7 @@ class JellTogetherApp {
         startButton.disabled = this.selectedPlaybackTargets(container).length === 0;
     }
 
-    showTargetDetailsModal(target) {
+    showTargetDetailsModal(target, backAction) {
         this.hideModal();
         const overlay = document.createElement('div');
         overlay.id = 'app-modal-overlay';
@@ -2226,7 +2226,13 @@ class JellTogetherApp {
         modal.appendChild(troubleshooting);
         
         const actionRow = document.createElement('div');
-        actionRow.className = 'modal-actions';
+        actionRow.className = 'split-actions';
+        if (backAction) {
+            actionRow.appendChild(this.button('Back', 'secondary-command', () => {
+                this.hideModal();
+                backAction();
+            }));
+        }
         actionRow.appendChild(this.button('Cancel', 'secondary-command', () => this.hideModal()));
         modal.appendChild(actionRow);
         
