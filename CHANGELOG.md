@@ -1,5 +1,13 @@
 # JellTogether Changelog
 
+## [2026-05-19] - Global Discord Stage settings
+- Moved Discord Stage bot configuration out of individual watch party rooms and into the administrator-only global settings page.
+- Added server-wide Discord Stage channel ID and bot token settings with saved-token status and a clear-token option.
+- Kept room-level Discord Stage sync as a host/co-host action that uses the global server configuration.
+- Added collapsible Discord bot setup requirements, Stage channel discovery, manual channel ID fallback, and a Discord connection test.
+- Added `JELLTOGETHER_DISCORD_BOT_TOKEN` support for server/container-provided bot tokens that override UI-saved tokens.
+- Added playback start diagnostics to trace Jellyfin target eligibility and command failures.
+
 ## [2026-05-17] - Theater controls and full revision history
 - Turned the theater screen into a host/co-host control surface for queued playback, media search, and playback targets.
 - Added a connected-server indicator with manual server switching.

@@ -1297,6 +1297,198 @@ h1 {
     line-height: 1.45;
 }
 
+.settings-disclosure {
+    border: 1px solid rgba(94, 234, 212, 0.18);
+    border-radius: 8px;
+    background: rgba(94, 234, 212, 0.06);
+    overflow: hidden;
+}
+
+.settings-disclosure summary {
+    padding: 13px 14px;
+    color: var(--text-main);
+    font-weight: 800;
+    cursor: pointer;
+    list-style-position: inside;
+}
+
+.settings-disclosure summary:hover {
+    background: rgba(94, 234, 212, 0.08);
+}
+
+.requirements-list,
+.setup-steps {
+    display: grid;
+    gap: 8px;
+    padding: 0 14px 14px;
+    color: var(--text-muted);
+    font-size: 0.84rem;
+    line-height: 1.45;
+}
+
+.requirements-list span,
+.setup-steps span {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr);
+    gap: 8px;
+}
+
+.requirements-list span::before,
+.setup-steps span::before {
+    content: "";
+    width: 5px;
+    height: 5px;
+    margin-top: 8px;
+    border-radius: 50%;
+    background: var(--primary);
+    box-shadow: 0 0 10px var(--primary-glow);
+}
+
+.setup-steps {
+    counter-reset: setup-step;
+}
+
+.setup-steps span {
+    counter-increment: setup-step;
+}
+
+.setup-steps span::before {
+    content: counter(setup-step);
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    border-radius: 50%;
+    background: rgba(180, 140, 255, 0.22);
+    color: var(--text-main);
+    font-size: 0.68rem;
+    font-weight: 900;
+    box-shadow: none;
+}
+
+.compact-disclosure summary {
+    padding: 10px 12px;
+    font-size: 0.82rem;
+}
+
+.manual-stage-entry {
+    display: grid;
+    gap: 8px;
+    padding: 0 12px 12px;
+}
+
+.settings-inline-command {
+    justify-self: start;
+}
+
+.discord-test-result {
+    display: grid;
+    gap: 5px;
+    max-width: 720px;
+    padding: 12px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background: rgba(7, 10, 24, 0.48);
+    overflow-wrap: anywhere;
+}
+
+.discord-test-result strong {
+    color: var(--text-main);
+}
+
+.stage-channel-control {
+    display: grid;
+    gap: 10px;
+}
+
+.stage-channel-actions {
+    display: flex;
+    justify-content: flex-end;
+}
+
+.stage-channel-results {
+    display: grid;
+    gap: 8px;
+}
+
+.stage-channel-option {
+    display: grid;
+    gap: 3px;
+    width: 100%;
+    padding: 12px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background: rgba(7, 10, 24, 0.48);
+    color: var(--text-main);
+    text-align: left;
+    cursor: pointer;
+}
+
+.stage-channel-option:hover,
+.stage-channel-option.is-selected {
+    border-color: rgba(94, 234, 212, 0.46);
+    background: rgba(94, 234, 212, 0.10);
+}
+
+.stage-channel-option em {
+    color: var(--text-dim);
+    font-size: 0.76rem;
+    font-style: normal;
+    overflow-wrap: anywhere;
+}
+
+.diagnostic-meta,
+.diagnostic-section {
+    display: grid;
+    gap: 8px;
+}
+
+.diagnostic-meta {
+    padding: 12px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background: rgba(7, 10, 24, 0.48);
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    overflow-wrap: anywhere;
+}
+
+.diagnostic-section {
+    margin-top: 10px;
+}
+
+.diagnostic-section > strong {
+    color: var(--text-main);
+}
+
+.diagnostic-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 5px 10px;
+    align-items: center;
+    padding: 12px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background: rgba(7, 10, 24, 0.48);
+}
+
+.diagnostic-row.is-ok {
+    border-color: rgba(94, 234, 212, 0.28);
+}
+
+.diagnostic-row.is-failed {
+    border-color: rgba(255, 111, 177, 0.32);
+}
+
+.diagnostic-row em {
+    grid-column: 1 / -1;
+    color: var(--text-dim);
+    font-size: 0.76rem;
+    font-style: normal;
+    overflow-wrap: anywhere;
+}
+
 .library-list {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -1398,6 +1590,17 @@ h1 {
 .settings-option-card.numeric .glass-input {
     margin-top: 4px;
     max-width: 160px;
+}
+
+.settings-option-card.compact-option {
+    min-height: 0;
+    max-width: 420px;
+}
+
+.settings-note {
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    line-height: 1.45;
 }
 
 .media-search-results {
@@ -2722,5 +2925,3 @@ body.theme-scifi {
 .trouble-steps-list li strong {
     color: var(--text-main);
 }
-
-

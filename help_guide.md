@@ -27,5 +27,17 @@ Welcome to JellTogether!
 - Use the Theory Board to pin notes during mysteries.
 - Start live polls to let everyone vote.
 
-## Discord Orchestrator
+## Discord Stage
 - Sync your movie title to a Discord Stage topic automatically.
+- You must create your own Discord bot and invite it to the server containing the Stage channel.
+- The bot needs permission to view channels and manage the selected Stage channel.
+- Administrators can paste the bot token in JellTogether global settings for easy setup.
+- For stronger token storage, set `JELLTOGETHER_DISCORD_BOT_TOKEN` on the Jellyfin server or container, restart Jellyfin, then leave the Bot Token field blank.
+- When `JELLTOGETHER_DISCORD_BOT_TOKEN` is present, JellTogether uses that server-provided token and disables token editing in the settings UI.
+- Use Test Discord Connection in global settings to validate the bot token, Stage channel type, and manage-channel permission.
+
+## Admin Notes
+- The Discord environment token always takes precedence over a token saved through the settings UI.
+- Playback start diagnostics are shown when Jellyfin rejects a remote playback command or when no eligible target is available.
+- Full playback diagnostic identifiers are limited to room owners and co-hosts; other playback-enabled participants receive redacted status details.
+- If a plugin install fails, confirm the release ZIP exists at the `repository.json` `sourceUrl` and that the MD5 checksum matches.

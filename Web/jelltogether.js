@@ -7,7 +7,7 @@ class JellTogetherApp {
         this.enabledLibraryIds = [];
         this.allowQueueVotingByDefault = true;
         this.allowParticipantQueueAdds = true;
-        this.pluginVersion = "1.2.18.0";
+        this.pluginVersion = "1.3.2.0";
         this.changelog = [];
         this.currentRoom = null;
         this.currentUser = "Unknown";
@@ -545,7 +545,7 @@ class JellTogetherApp {
 
     jellyfinAuthorizationHeader() {
         const deviceId = this.deviceId();
-        return `MediaBrowser Client="JellTogether Companion", Device="Browser", DeviceId="${deviceId}", Version="1.2.18.0"`;
+        return `MediaBrowser Client="JellTogether Companion", Device="Browser", DeviceId="${deviceId}", Version="1.3.2.0"`;
     }
 
     deviceId() {
@@ -1070,9 +1070,6 @@ class JellTogetherApp {
 
         const themeControls = document.getElementById('host-theme-controls');
         if (themeControls) themeControls.style.display = amAdmin ? 'grid' : 'none';
-
-        const discordControls = document.getElementById('host-discord-stage');
-        if (discordControls) discordControls.style.display = amOwner ? 'grid' : 'none';
 
         const canInvite = amAdmin || this.currentRoom.allowParticipantInvites;
         const inviteContainer = document.getElementById('invite-code-container');
@@ -2405,15 +2402,103 @@ class JellTogetherApp {
         if (!this.currentRoom || !itemId) return;
         try {
             const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Queue/${encodeURIComponent(itemId)}/Start`, { targetSessionIds });
-            if (!resp.ok) throw new Error(await resp.text());
+            if (!resp.ok) {
+                const diagnostics = await this.responsePayload(resp);
+                this.showPlaybackDiagnostics(diagnostics, `Playback start failed (${resp.status})`);
+                this.showToast('Playback failed. See diagnostics.', 'error');
+                return;
+            }
             const result = await resp.json();
             this.hideModal();
             await this.refreshRoom();
-            this.showToast(`Started ${result.title || 'watch party'} on ${result.startedCount || 0} session${result.startedCount === 1 ? '' : 's'}.`, 'success');
+            if ((result.failedSessionIds || []).length) {
+                this.showPlaybackDiagnostics(result, 'Playback partially started');
+                this.showToast(`Started ${result.title || 'watch party'} on ${result.startedCount || 0} of ${result.eligibleCount || 0} sessions.`, 'error');
+            } else {
+                this.showToast(`Started ${result.title || 'watch party'} on ${result.startedCount || 0} session${result.startedCount === 1 ? '' : 's'}.`, 'success');
+            }
         } catch (e) {
             console.error("Start Watch Party Error:", e);
             this.showToast("Could not start playback. Make sure participants have active controllable Jellyfin clients.", 'error');
         }
+    }
+
+    async responsePayload(resp) {
+        const contentType = resp.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+            try {
+                return await resp.json();
+            } catch (e) {
+                console.error('Response JSON parse failed:', e);
+            }
+        }
+        return resp.text();
+    }
+
+    showPlaybackDiagnostics(data, title = 'Playback Diagnostics') {
+        this.hideModal();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card playback-modal';
+        modal.appendChild(this.textEl('h3', title));
+
+        if (typeof data === 'string') {
+            modal.appendChild(this.textEl('p', data || 'Jellyfin did not return diagnostic details.', 'modal-subtitle'));
+        } else if (data) {
+            modal.appendChild(this.textEl('p', `${data.title || 'Selected media'} · ${data.startedCount || 0}/${data.eligibleCount || 0} started`, 'modal-subtitle'));
+
+            const meta = document.createElement('div');
+            meta.className = 'diagnostic-meta';
+            meta.appendChild(this.textEl('span', `Controller session: ${data.controllingSessionId || 'unknown'}`));
+            meta.appendChild(this.textEl('span', `Controller user: ${data.controllingUserId || 'unknown'}`));
+            modal.appendChild(meta);
+
+            const attempts = Array.isArray(data.attempts) ? data.attempts : [];
+            if (attempts.length) {
+                const section = document.createElement('section');
+                section.className = 'diagnostic-section';
+                section.appendChild(this.textEl('strong', 'Command Attempts'));
+                attempts.forEach(attempt => {
+                    const row = document.createElement('div');
+                    row.className = attempt.success ? 'diagnostic-row is-ok' : 'diagnostic-row is-failed';
+                    row.appendChild(this.textEl('span', attempt.success ? 'Sent' : 'Failed', 'target-state'));
+                    row.appendChild(this.textEl('strong', `${attempt.deviceName || 'Unknown device'} · ${attempt.client || 'Unknown client'}`));
+                    row.appendChild(this.textEl('em', attempt.error || attempt.status || attempt.sessionId || 'No detail returned.'));
+                    section.appendChild(row);
+                });
+                modal.appendChild(section);
+            }
+
+            const targets = Array.isArray(data.availableTargets) ? data.availableTargets : [];
+            if (targets.length) {
+                const section = document.createElement('section');
+                section.className = 'diagnostic-section';
+                section.appendChild(this.textEl('strong', 'Available Target Snapshot'));
+                targets.forEach(target => {
+                    const row = document.createElement('div');
+                    row.className = target.canStartPlayback ? 'diagnostic-row is-ok' : 'diagnostic-row is-failed';
+                    row.appendChild(this.textEl('span', target.canStartPlayback ? 'Ready' : 'Blocked', 'target-state'));
+                    row.appendChild(this.textEl('strong', `${target.deviceName || 'Unknown device'} · ${target.client || 'Unknown client'}`));
+                    row.appendChild(this.textEl('em', `${target.eligibilityReason || 'No reason'} · remote=${Boolean(target.supportsRemoteControl)} media=${Boolean(target.supportsMediaControl)} active=${Boolean(target.isActive)}`));
+                    section.appendChild(row);
+                });
+                modal.appendChild(section);
+            }
+        }
+
+        const actionRow = document.createElement('div');
+        actionRow.className = 'split-actions';
+        actionRow.appendChild(this.button('View Targets', 'secondary-command', () => this.showPlaybackTargetsModal()));
+        actionRow.appendChild(this.button('Close', 'primary-command', () => this.hideModal()));
+        modal.appendChild(actionRow);
+
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
     }
 
     async toggleQueueVote(itemId) {
@@ -2719,25 +2804,6 @@ class JellTogetherApp {
         else if (!this.isVR && document.exitFullscreen) document.exitFullscreen();
     }
 
-    async saveDiscordStage() {
-        const stageId = document.getElementById('discord-stage-id').value.trim();
-        const botToken = document.getElementById('discord-bot-token').value.trim();
-        if (!stageId || !botToken) {
-            this.showToast("Please enter both Discord Stage ID and bot token.", 'error');
-            return;
-        }
-
-        try {
-            const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/DiscordStage`, { botToken, stageId });
-            if (!resp.ok) throw new Error("Discord config failed");
-            document.getElementById('discord-bot-token').value = '';
-            this.showToast("Discord Stage configured.", 'success');
-        } catch (e) {
-            console.error("Discord Config Error:", e);
-            this.showToast("Failed to save Discord Stage settings.", 'error');
-        }
-    }
-
     async syncDiscordStage(titleOverride = null) {
         if (!titleOverride) {
             this.showModal('Sync Discord Stage', [
@@ -2751,12 +2817,12 @@ class JellTogetherApp {
         const title = titleOverride;
         if (!title || !title.trim()) return;
         try {
-            const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/SyncStage`, title.trim());
+            const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/SyncStage`, { title: title.trim() });
             if (!resp.ok) throw new Error("Discord sync failed");
             this.showToast("Discord Stage synced.", 'success');
         } catch (e) {
             console.error("Discord Sync Error:", e);
-            this.showToast("Failed to sync Discord Stage.", 'error');
+            this.showToast("Failed to sync Discord Stage. Check the global Discord settings.", 'error');
         }
     }
 
@@ -3117,7 +3183,7 @@ class JellTogetherApp {
         document.getElementById('lobby-view').style.display = view === 'lobby' ? 'block' : 'none';
         document.getElementById('party-view').style.display = view === 'party' ? 'block' : 'none';
         if (view === 'lobby') {
-            ['sidebar-tabs', 'participant-section', 'room-management', 'host-theme-controls', 'host-discord-stage', 'poll-section', 'reaction-bar', 'chat-container'].forEach(id => {
+            ['sidebar-tabs', 'participant-section', 'room-management', 'host-theme-controls', 'poll-section', 'reaction-bar', 'chat-container'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
             });

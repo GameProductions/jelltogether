@@ -2,6 +2,8 @@ class JellTogetherSettingsApp {
     constructor() {
         this.settings = null;
         this.libraries = [];
+        this.discordStageChannels = [];
+        this.discordStagePickerMode = 'manual';
         this.init();
     }
 
@@ -16,6 +18,11 @@ class JellTogetherSettingsApp {
         if (publicUrl) {
             publicUrl.addEventListener('input', () => this.updateCompanionPill());
         }
+
+        document.getElementById('settings-discord-clear-token')?.addEventListener('change', () => {
+            this.updateDiscordTokenStatus();
+            this.renderDiscordStageControl();
+        });
     }
 
     async request(url, options = {}) {
@@ -85,6 +92,12 @@ class JellTogetherSettingsApp {
             document.getElementById('settings-android-tv-targets').checked = this.settings.allowAndroidTvPlaybackTargets !== false;
             document.getElementById('settings-persist-history').checked = this.settings.persistRoomHistory !== false;
             document.getElementById('settings-invite-hours').value = this.settings.defaultInviteExpirationHours ?? 24;
+            document.getElementById('settings-discord-stage-id').value = this.settings.discordStageId || '';
+            document.getElementById('settings-discord-bot-token').value = '';
+            document.getElementById('settings-discord-clear-token').checked = false;
+            this.updateDiscordTokenStatus();
+            this.updateDiscordTokenControls();
+            await this.loadDiscordStageChannels();
             this.updateCompanionPill();
         } catch (e) {
             console.error('JellTogether settings load failed:', e);
@@ -233,7 +246,10 @@ class JellTogetherSettingsApp {
             allowParticipantInvitesByDefault: document.getElementById('settings-participant-invites')?.checked === true,
             allowAndroidTvPlaybackTargets: document.getElementById('settings-android-tv-targets')?.checked === true,
             persistRoomHistory: document.getElementById('settings-persist-history')?.checked === true,
-            defaultInviteExpirationHours: parseInt(document.getElementById('settings-invite-hours')?.value || '24', 10)
+            defaultInviteExpirationHours: parseInt(document.getElementById('settings-invite-hours')?.value || '24', 10),
+            discordStageId: this.selectedDiscordStageId(),
+            discordBotToken: this.isDiscordEnvironmentTokenActive() ? '' : (document.getElementById('settings-discord-bot-token')?.value?.trim() || ''),
+            clearDiscordBotToken: this.isDiscordEnvironmentTokenActive() ? false : document.getElementById('settings-discord-clear-token')?.checked === true
         };
 
         try {
@@ -243,12 +259,236 @@ class JellTogetherSettingsApp {
                 body: JSON.stringify(payload)
             });
             if (!resp.ok) throw new Error(`Save failed with ${resp.status}`);
-            this.settings = { ...this.settings, ...payload };
+            this.settings = {
+                ...this.settings,
+                ...payload,
+                hasDiscordBotToken: this.isDiscordEnvironmentTokenActive() || (payload.clearDiscordBotToken ? false : Boolean(payload.discordBotToken || this.settings?.hasDiscordBotToken))
+            };
+            document.getElementById('settings-discord-bot-token').value = '';
+            document.getElementById('settings-discord-clear-token').checked = false;
+            this.updateDiscordTokenStatus();
+            this.updateDiscordTokenControls();
+            await this.loadDiscordStageChannels();
             this.toast('JellTogether settings saved.', 'success');
         } catch (e) {
             console.error('JellTogether settings save failed:', e);
             this.toast('Could not save settings.', 'error');
         }
+    }
+
+    updateDiscordTokenStatus() {
+        const status = document.getElementById('settings-discord-token-status');
+        if (!status) return;
+        status.textContent = this.isDiscordEnvironmentTokenActive()
+            ? 'Discord bot token is provided by the Jellyfin server environment variable JELLTOGETHER_DISCORD_BOT_TOKEN. UI token editing is disabled.'
+            : this.settings?.hasDiscordBotToken
+            ? 'A Discord bot token is saved. Enter a new token to replace it, or choose clear saved bot token.'
+            : 'No bot token saved.';
+    }
+
+    updateDiscordTokenControls() {
+        const environmentToken = this.isDiscordEnvironmentTokenActive();
+        const token = document.getElementById('settings-discord-bot-token');
+        const clear = document.getElementById('settings-discord-clear-token');
+        if (token) {
+            token.disabled = environmentToken;
+            token.placeholder = environmentToken
+                ? 'Provided by JELLTOGETHER_DISCORD_BOT_TOKEN'
+                : 'Leave blank to keep the saved token';
+        }
+        if (clear) clear.disabled = environmentToken;
+    }
+
+    isDiscordEnvironmentTokenActive() {
+        return this.settings?.discordBotTokenSource === 'environment';
+    }
+
+    async loadDiscordStageChannels() {
+        if (!this.settings?.hasDiscordBotToken || document.getElementById('settings-discord-clear-token')?.checked === true) {
+            this.discordStageChannels = [];
+            this.renderDiscordStageControl();
+            return;
+        }
+
+        const container = document.getElementById('settings-discord-stage-control');
+        if (container) container.replaceChildren(this.textEl('div', 'Loading eligible Discord Stage channels...', 'loading'));
+
+        try {
+            const result = await this.fetchJson('/jelltogether/Discord/StageChannels');
+            this.discordStageChannels = Array.isArray(result.channels) ? result.channels : [];
+            this.renderDiscordStageControl();
+        } catch (e) {
+            console.error('Discord Stage channel load failed:', e);
+            this.discordStageChannels = [];
+            this.renderDiscordStageControl('Saved Discord bot token could not load Stage channels. Check the token and bot permissions.');
+        }
+    }
+
+    renderDiscordStageControl(errorMessage = '') {
+        const container = document.getElementById('settings-discord-stage-control');
+        const hidden = document.getElementById('settings-discord-stage-id');
+        if (!container || !hidden) return;
+
+        container.replaceChildren();
+        const shouldUseManual = !this.settings?.hasDiscordBotToken || document.getElementById('settings-discord-clear-token')?.checked === true;
+        if (shouldUseManual) {
+            this.discordStagePickerMode = 'manual';
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.id = 'settings-discord-stage-picker';
+            input.className = 'glass-input';
+            input.placeholder = 'Discord stage channel ID';
+            input.value = hidden.value || this.settings?.discordStageId || '';
+            input.addEventListener('input', () => hidden.value = input.value.trim());
+            container.appendChild(input);
+            container.appendChild(this.textEl('div', 'Save a bot token to search eligible Stage channels automatically.', 'settings-note'));
+            return;
+        }
+
+        this.discordStagePickerMode = 'search';
+        if (!hidden.value && this.settings?.discordStageId) hidden.value = this.settings.discordStageId;
+
+        const selected = this.discordStageChannels.find(channel => channel.id === hidden.value);
+        const search = document.createElement('input');
+        search.type = 'search';
+        search.id = 'settings-discord-stage-picker';
+        search.className = 'glass-input';
+        search.placeholder = this.discordStageChannels.length ? 'Search Discord Stage channels' : 'No eligible Stage channels found';
+        search.value = selected ? this.stageChannelLabel(selected) : '';
+
+        const actions = document.createElement('div');
+        actions.className = 'stage-channel-actions';
+        const refresh = document.createElement('button');
+        refresh.type = 'button';
+        refresh.className = 'secondary-command compact';
+        refresh.textContent = 'Refresh';
+        refresh.onclick = () => this.loadDiscordStageChannels();
+        actions.appendChild(refresh);
+
+        const results = document.createElement('div');
+        results.className = 'stage-channel-results';
+
+        const renderResults = () => {
+            const query = search.value.trim().toLowerCase();
+            const matches = this.discordStageChannels
+                .filter(channel => this.stageChannelLabel(channel).toLowerCase().includes(query) || channel.id.includes(query))
+                .slice(0, 12);
+
+            results.replaceChildren();
+            if (!matches.length) {
+                results.appendChild(this.textEl('div', this.discordStageChannels.length ? 'No matching Stage channels.' : 'No eligible Stage channels found for this bot.', 'settings-note'));
+                return;
+            }
+
+            matches.forEach(channel => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = `stage-channel-option${channel.id === hidden.value ? ' is-selected' : ''}`;
+                button.appendChild(this.textEl('strong', channel.name || 'Stage channel'));
+                button.appendChild(this.textEl('em', `${channel.guildName || 'Discord server'} · ${channel.id}`));
+                button.onclick = () => {
+                    hidden.value = channel.id;
+                    search.value = this.stageChannelLabel(channel);
+                    renderResults();
+                };
+                results.appendChild(button);
+            });
+        };
+
+        search.addEventListener('input', renderResults);
+        search.addEventListener('focus', renderResults);
+        container.appendChild(search);
+        container.appendChild(actions);
+        if (errorMessage) container.appendChild(this.textEl('div', errorMessage, 'settings-note'));
+        container.appendChild(results);
+        container.appendChild(this.manualStageIdDetails(hidden));
+        renderResults();
+    }
+
+    manualStageIdDetails(hidden) {
+        const details = document.createElement('details');
+        details.className = 'settings-disclosure compact-disclosure';
+        const summary = document.createElement('summary');
+        summary.textContent = 'Enter Stage Channel ID Manually';
+        details.appendChild(summary);
+
+        const body = document.createElement('div');
+        body.className = 'manual-stage-entry';
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'glass-input';
+        input.placeholder = 'Discord stage channel ID';
+        input.value = hidden.value || this.settings?.discordStageId || '';
+        input.addEventListener('input', () => hidden.value = input.value.trim());
+        body.appendChild(input);
+        body.appendChild(this.textEl('div', 'Use this when Discord channel discovery cannot list a channel the bot can still manage.', 'settings-note'));
+        details.appendChild(body);
+        return details;
+    }
+
+    selectedDiscordStageId() {
+        const hidden = document.getElementById('settings-discord-stage-id');
+        const picker = document.getElementById('settings-discord-stage-picker');
+        if (this.discordStagePickerMode === 'manual') return picker?.value?.trim() || '';
+        return hidden?.value?.trim() || '';
+    }
+
+    async testDiscordStage() {
+        const payload = {
+            discordStageId: this.selectedDiscordStageId(),
+            discordBotToken: document.getElementById('settings-discord-bot-token')?.value?.trim() || ''
+        };
+
+        try {
+            const resp = await this.request('/jelltogether/Discord/TestStage', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const result = await this.responsePayload(resp);
+            if (!resp.ok) throw result;
+            this.toast(result?.status || 'Discord Stage connection is ready.', 'success');
+            this.showDiscordTestResult(result, 'Discord Connection Ready');
+        } catch (e) {
+            console.error('Discord Stage test failed:', e);
+            this.toast('Discord Stage connection test failed.', 'error');
+            this.showDiscordTestResult(e, 'Discord Connection Failed');
+        }
+    }
+
+    async responsePayload(resp) {
+        const contentType = resp.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+            try {
+                return await resp.json();
+            } catch (e) {
+                console.error('Response JSON parse failed:', e);
+            }
+        }
+        return resp.text();
+    }
+
+    showDiscordTestResult(result, title) {
+        let panel = document.getElementById('settings-discord-test-result');
+        if (!panel) {
+            panel = document.createElement('div');
+            panel.id = 'settings-discord-test-result';
+            panel.className = 'discord-test-result settings-note';
+            document.getElementById('settings-discord-token-status')?.after(panel);
+        }
+
+        const checks = Array.isArray(result?.checks) ? result.checks : [];
+        panel.replaceChildren();
+        panel.appendChild(this.textEl('strong', title));
+        panel.appendChild(this.textEl('span', result?.status || 'No detailed status was returned.'));
+        if (result?.channelName) panel.appendChild(this.textEl('span', `Channel: ${result.channelName}`));
+        if (result?.channelId) panel.appendChild(this.textEl('span', `Channel ID: ${result.channelId}`));
+        if (result?.guildId) panel.appendChild(this.textEl('span', `Server ID: ${result.guildId}`));
+        checks.forEach(check => panel.appendChild(this.textEl('span', `Passed: ${check}`)));
+    }
+
+    stageChannelLabel(channel) {
+        return channel?.label || `${channel?.guildName || 'Discord server'} / ${channel?.name || 'Stage channel'}`;
     }
 
     textEl(tag, text, className = null) {

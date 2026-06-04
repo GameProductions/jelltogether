@@ -17,5 +17,7 @@ namespace JellTogether.Plugin.Configuration
         public bool AllowAndroidTvPlaybackTargets { get; set; } = true;
         public bool PersistRoomHistory { get; set; } = true;
         public int DefaultInviteExpirationHours { get; set; } = 24;
+        public string DiscordStageId { get; set; } = string.Empty;
+        public string DiscordBotToken { get; set; } = string.Empty;
     }
 }

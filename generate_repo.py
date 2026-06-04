@@ -20,14 +20,30 @@ ZIP_NAME = f"jelltogether_{VERSION}.zip"
 ZIP_PATH = os.path.join(BASE_DIR, ZIP_NAME)
 REPO_JSON_PATH = os.path.join(BASE_DIR, "repository.json")
 MANIFEST_JSON_PATH = os.path.join(BASE_DIR, "manifest.json")
-CHANGELOG = """Establish compile-time single source of truth versioning, upgrade server indicators, and support playback modal back navigation.
+CHANGELOG = """Republish Discord Stage settings and playback diagnostics as a fresh Jellyfin patch release.
+
+- Moved Discord Stage bot configuration out of individual watch party rooms and into the administrator-only global settings page.
+- Added server-wide Discord Stage channel ID and bot token settings with saved-token status and a clear-token option.
+- Kept room-level Discord Stage sync as a host/co-host action that uses the global server configuration.
+- Added collapsible Discord bot setup requirements, Stage channel discovery, manual channel ID fallback, and a Discord connection test.
+- Added JELLTOGETHER_DISCORD_BOT_TOKEN support for server/container-provided bot tokens that override UI-saved tokens.
+- Added playback start diagnostics to trace Jellyfin target eligibility and command failures.
+- Bumped the package version so Jellyfin refreshes the repository entry, release asset URL, and checksum."""
+
+HISTORICAL_RELEASES = [
+    {
+        "version": "1.3.0.0",
+        "changelog": """Establish compile-time single source of truth versioning, upgrade server indicators, and support playback modal back navigation.
 
 - Consolidated system-wide version attributes into a single root-level version.txt file parsed dynamically during MSBuild compilation and release packaging.
 - Refactored the header server details card into an ultra-compact status button with real-time glowing connectivity indicators to resolve URL spacing issues.
 - Relocated long server connection host URLs into a gorgeous, dedicated Server Status details overlay modal.
-- Integrated full-stack back button navigation support inside diagnostic Playback Target details modals, resolving UI routing loops."""
-
-HISTORICAL_RELEASES = [
+- Integrated full-stack back button navigation support inside diagnostic Playback Target details modals, resolving UI routing loops.""",
+        "targetAbi": TARGET_ABI,
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.3.0.0/jelltogether_1.3.0.0.zip",
+        "checksum": "FCB5E191D10CFF714777F68706226F37",
+        "timestamp": "2026-05-18T01:59:01Z",
+    },
     {
         "version": "1.2.18.0",
         "changelog": """Add target device connection diagnostics, status checklists, and interactive troubleshooting guides.
@@ -364,6 +380,48 @@ HISTORICAL_RELEASES = [
     },
 ]
 
+def compact_release_history(versions):
+    """Keep one Jellyfin-visible release entry per calendar day."""
+    grouped = {}
+    order = []
+
+    for version in versions:
+        day = version.get("timestamp", "")[:10] or version.get("version", "")
+        if day not in grouped:
+            grouped[day] = []
+            order.append(day)
+        grouped[day].append(version)
+
+    compacted = []
+    for day in order:
+        releases = sorted(grouped[day], key=lambda item: item.get("timestamp", ""), reverse=True)
+        latest = dict(releases[0])
+        if len(releases) == 1:
+            compacted.append(latest)
+            continue
+
+        heading = ""
+        bullets = []
+        for release in releases:
+            changelog = release.get("changelog", "").strip()
+            if not changelog:
+                continue
+            lines = [line.rstrip() for line in changelog.splitlines()]
+            if not heading:
+                heading = next((line for line in lines if line.strip()), "")
+            for line in lines:
+                stripped = line.strip()
+                if stripped.startswith("- "):
+                    if stripped not in bullets:
+                        bullets.append(stripped)
+
+        latest["changelog"] = heading
+        if bullets:
+            latest["changelog"] += "\n\n" + "\n".join(bullets)
+        compacted.append(latest)
+
+    return compacted
+
 def run_command(cmd):
     print(f"Running: {cmd}")
     subprocess.run(cmd, shell=True, check=True)
@@ -400,6 +458,7 @@ def plugin_manifest_entry(checksum, timestamp, image_key, image_value, include_h
 
     if include_history:
         versions.extend(HISTORICAL_RELEASES)
+        versions = compact_release_history(versions)
 
     return {
         "guid": GUID,

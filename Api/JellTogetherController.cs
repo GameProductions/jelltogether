@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Reflection;
 using System.Security.Claims;
 using System.Text.Json;
@@ -31,10 +32,9 @@ namespace JellTogether.Plugin.Api
         public int MaxUses { get; set; } = 0;
     }
 
-    public class DiscordStageRequest
+    public class SyncDiscordStageRequest
     {
-        public string BotToken { get; set; } = string.Empty;
-        public string StageId { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
     }
 
     public class CompanionSettingsRequest
@@ -54,6 +54,34 @@ namespace JellTogether.Plugin.Api
         public bool AllowAndroidTvPlaybackTargets { get; set; } = true;
         public bool PersistRoomHistory { get; set; } = true;
         public int DefaultInviteExpirationHours { get; set; } = 24;
+        public string DiscordStageId { get; set; } = string.Empty;
+        public string DiscordBotToken { get; set; } = string.Empty;
+        public bool ClearDiscordBotToken { get; set; } = false;
+    }
+
+    public class DiscordStageTestRequest
+    {
+        public string DiscordStageId { get; set; } = string.Empty;
+        public string DiscordBotToken { get; set; } = string.Empty;
+    }
+
+    public class DiscordStageTestResult
+    {
+        public bool Success { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public string ChannelId { get; set; } = string.Empty;
+        public string ChannelName { get; set; } = string.Empty;
+        public string GuildId { get; set; } = string.Empty;
+        public List<string> Checks { get; set; } = new();
+    }
+
+    public class DiscordStageChannelOption
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string GuildId { get; set; } = string.Empty;
+        public string GuildName { get; set; } = string.Empty;
+        public string Label => string.IsNullOrWhiteSpace(GuildName) ? Name : $"{GuildName} / {Name}";
     }
 
     public class QueueItemRequest
@@ -98,6 +126,21 @@ namespace JellTogether.Plugin.Api
         public int StartedCount { get; set; }
         public int EligibleCount { get; set; }
         public List<string> FailedSessionIds { get; set; } = new();
+        public string ControllingSessionId { get; set; } = string.Empty;
+        public string ControllingUserId { get; set; } = string.Empty;
+        public List<PlaybackStartAttempt> Attempts { get; set; } = new();
+        public List<PlaybackTargetDto> AvailableTargets { get; set; } = new();
+    }
+
+    public class PlaybackStartAttempt
+    {
+        public string SessionId { get; set; } = string.Empty;
+        public string UserName { get; set; } = string.Empty;
+        public string Client { get; set; } = string.Empty;
+        public string DeviceName { get; set; } = string.Empty;
+        public bool Success { get; set; }
+        public string Status { get; set; } = string.Empty;
+        public string Error { get; set; } = string.Empty;
     }
 
     [ApiController]
@@ -106,6 +149,7 @@ namespace JellTogether.Plugin.Api
     public class JellTogetherController : ControllerBase
     {
         private readonly ISessionManager _sessionManager;
+        private static readonly HttpClient DiscordHttpClient = new();
         private RoomManager _roomManager => Plugin.Instance?.RoomManager ?? throw new System.Exception("Plugin not initialized");
         private string CurrentUserId =>
             User.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
@@ -216,6 +260,9 @@ namespace JellTogether.Plugin.Api
                 allowAndroidTvPlaybackTargets = config?.AllowAndroidTvPlaybackTargets ?? true,
                 persistRoomHistory = config?.PersistRoomHistory ?? true,
                 defaultInviteExpirationHours = config?.DefaultInviteExpirationHours ?? 24,
+                discordStageId = config?.DiscordStageId ?? string.Empty,
+                hasDiscordBotToken = !string.IsNullOrWhiteSpace(EffectiveDiscordBotToken(config)),
+                discordBotTokenSource = IsDiscordBotTokenFromEnvironment() ? "environment" : "configuration",
                 pluginVersion = PluginVersion(),
                 changelog = ChangelogEntries()
             });
@@ -254,8 +301,138 @@ namespace JellTogether.Plugin.Api
             config.AllowAndroidTvPlaybackTargets = request.AllowAndroidTvPlaybackTargets;
             config.PersistRoomHistory = request.PersistRoomHistory;
             config.DefaultInviteExpirationHours = Math.Clamp(request.DefaultInviteExpirationHours, 0, 24 * 30);
+            config.DiscordStageId = TrimToLimit(request.DiscordStageId, 64);
+            if (IsDiscordBotTokenFromEnvironment())
+            {
+                // Server-provided secrets intentionally override UI-managed token changes.
+            }
+            else if (request.ClearDiscordBotToken)
+            {
+                config.DiscordBotToken = string.Empty;
+            }
+            else if (!string.IsNullOrWhiteSpace(request.DiscordBotToken))
+            {
+                config.DiscordBotToken = TrimToLimit(request.DiscordBotToken, 256);
+            }
             plugin.SaveConfiguration(config);
             return Ok();
+        }
+
+        [HttpGet("Discord/StageChannels")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        public async Task<ActionResult<object>> GetDiscordStageChannels()
+        {
+            var token = EffectiveDiscordBotToken(Plugin.Instance?.Configuration);
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                return Ok(new
+                {
+                    hasBotToken = false,
+                    channels = Array.Empty<DiscordStageChannelOption>()
+                });
+            }
+
+            try
+            {
+                var guilds = await GetDiscordArray("https://discord.com/api/v10/users/@me/guilds", token);
+                var channels = new List<DiscordStageChannelOption>();
+
+                foreach (var guild in guilds)
+                {
+                    var guildId = GetJsonString(guild, "id");
+                    if (string.IsNullOrWhiteSpace(guildId)) continue;
+
+                    var guildName = GetJsonString(guild, "name") ?? "Discord server";
+                    try
+                    {
+                        var guildChannels = await GetDiscordArray($"https://discord.com/api/v10/guilds/{Uri.EscapeDataString(guildId)}/channels", token);
+                        channels.AddRange(guildChannels
+                            .Where(channel => GetJsonInt(channel, "type") == 13)
+                            .Select(channel => new DiscordStageChannelOption
+                            {
+                                Id = GetJsonString(channel, "id") ?? string.Empty,
+                                Name = GetJsonString(channel, "name") ?? "Stage channel",
+                                GuildId = guildId,
+                                GuildName = guildName
+                            })
+                            .Where(channel => !string.IsNullOrWhiteSpace(channel.Id)));
+                    }
+                    catch
+                    {
+                        // The bot can be in a guild without enough permission to inspect channels there.
+                    }
+                }
+
+                return Ok(new
+                {
+                    hasBotToken = true,
+                    channels = channels
+                        .OrderBy(channel => channel.GuildName)
+                        .ThenBy(channel => channel.Name)
+                        .ToList()
+                });
+            }
+            catch
+            {
+                return BadRequest("Saved Discord bot token could not be used to load Stage channels.");
+            }
+        }
+
+        [HttpPost("Discord/TestStage")]
+        [Authorize(Policy = Policies.RequiresElevation)]
+        public async Task<ActionResult<DiscordStageTestResult>> TestDiscordStage([FromBody] DiscordStageTestRequest? request)
+        {
+            var config = Plugin.Instance?.Configuration;
+            var token = string.IsNullOrWhiteSpace(request?.DiscordBotToken)
+                ? EffectiveDiscordBotToken(config)
+                : request.DiscordBotToken;
+            var stageId = string.IsNullOrWhiteSpace(request?.DiscordStageId)
+                ? config?.DiscordStageId
+                : request.DiscordStageId;
+
+            var result = new DiscordStageTestResult
+            {
+                ChannelId = TrimToLimit(stageId ?? string.Empty, 64)
+            };
+
+            if (string.IsNullOrWhiteSpace(token))
+            {
+                result.Status = "A Discord bot token is required.";
+                return BadRequest(result);
+            }
+
+            if (string.IsNullOrWhiteSpace(stageId))
+            {
+                result.Status = "A Discord Stage channel ID is required.";
+                return BadRequest(result);
+            }
+
+            try
+            {
+                var channel = await GetDiscordObject($"https://discord.com/api/v10/channels/{Uri.EscapeDataString(TrimToLimit(stageId, 64))}", token);
+                result.Checks.Add("Bot token can read the channel.");
+                result.ChannelName = GetJsonString(channel, "name") ?? "Stage channel";
+                result.GuildId = GetJsonString(channel, "guild_id") ?? string.Empty;
+
+                if (GetJsonInt(channel, "type") != 13)
+                {
+                    result.Status = "The selected Discord channel is not a Stage channel.";
+                    return BadRequest(result);
+                }
+
+                result.Checks.Add("Selected channel is a Discord Stage channel.");
+                var currentTopic = GetJsonString(channel, "topic") ?? string.Empty;
+                await PatchDiscordObject($"https://discord.com/api/v10/channels/{Uri.EscapeDataString(TrimToLimit(stageId, 64))}", token, new { topic = currentTopic });
+                result.Checks.Add("Bot can manage the Stage channel topic.");
+                result.Success = true;
+                result.Status = "Discord Stage connection is ready.";
+                return Ok(result);
+            }
+            catch (Exception ex)
+            {
+                result.Status = $"Discord check failed: {ex.Message}";
+                return BadRequest(result);
+            }
         }
 
         [HttpPost("Rooms")]
@@ -439,7 +616,8 @@ namespace JellTogether.Plugin.Api
             if (item == null) return NotFound();
             if (!Guid.TryParse(item.MediaId, out var mediaId)) return BadRequest("Queue item is not linked to a playable Jellyfin item.");
 
-            var targets = PlaybackTargetsForRoom(room)
+            var availableTargets = PlaybackTargetsForRoom(room);
+            var targets = availableTargets
                 .Where(target => target.CanStartPlayback)
                 .ToList();
 
@@ -449,7 +627,17 @@ namespace JellTogether.Plugin.Api
                 targets = targets.Where(target => requestedSessionIds.Contains(target.SessionId)).ToList();
             }
 
-            if (targets.Count == 0) return BadRequest("No active controllable Jellyfin sessions are available for this room.");
+            if (targets.Count == 0)
+            {
+                var noTargetsResult = new StartWatchPartyResult
+                {
+                    Title = item.Title,
+                    EligibleCount = 0,
+                    StartedCount = 0,
+                    AvailableTargets = availableTargets
+                };
+                return BadRequest(CanManage(room) ? noTargetsResult : RedactPlaybackDiagnostics(noTargetsResult));
+            }
 
             var controllingSessionId = ControllerSessionId();
             var controllingUserId = ControllerUserGuid();
@@ -460,31 +648,52 @@ namespace JellTogether.Plugin.Api
                 ControllingUserId = controllingUserId
             };
 
-            var failed = new List<string>();
+            var attempts = new List<PlaybackStartAttempt>();
             foreach (var target in targets)
             {
+                var attempt = new PlaybackStartAttempt
+                {
+                    SessionId = target.SessionId,
+                    UserName = target.UserName,
+                    Client = target.Client,
+                    DeviceName = target.DeviceName
+                };
+
                 try
                 {
                     await _sessionManager.SendPlayCommand(controllingSessionId, target.SessionId, playRequest, cancellationToken).ConfigureAwait(false);
+                    attempt.Success = true;
+                    attempt.Status = "Command sent";
                 }
-                catch
+                catch (Exception ex)
                 {
-                    failed.Add(target.SessionId);
+                    attempt.Success = false;
+                    attempt.Status = "Command failed";
+                    attempt.Error = ex.Message;
                 }
+
+                attempts.Add(attempt);
             }
 
+            var failed = attempts.Where(attempt => !attempt.Success).Select(attempt => attempt.SessionId).ToList();
             if (failed.Count < targets.Count)
             {
                 _roomManager.MarkNowPlaying(roomId, item);
             }
 
-            return Ok(new StartWatchPartyResult
+            var result = new StartWatchPartyResult
             {
                 Title = item.Title,
                 EligibleCount = targets.Count,
                 StartedCount = targets.Count - failed.Count,
-                FailedSessionIds = failed
-            });
+                FailedSessionIds = failed,
+                ControllingSessionId = controllingSessionId,
+                ControllingUserId = controllingUserId.ToString(),
+                Attempts = attempts,
+                AvailableTargets = availableTargets
+            };
+
+            return Ok(CanManage(room) ? result : RedactPlaybackDiagnostics(result));
         }
 
         [HttpPost("Rooms/{roomId}/Theories")]
@@ -872,32 +1081,23 @@ namespace JellTogether.Plugin.Api
             return Ok(room.Stats);
         }
 
-        [HttpPost("Rooms/{roomId}/DiscordStage")]
-        public ActionResult SetDiscordStage(string roomId, [FromBody] DiscordStageRequest request)
-        {
-            if (request == null) return BadRequest("Discord stage payload is required.");
-            if (string.IsNullOrWhiteSpace(request.BotToken)) return BadRequest("Discord bot token is required.");
-            if (string.IsNullOrWhiteSpace(request.StageId)) return BadRequest("Discord stage id is required.");
-
-            var room = _roomManager.GetRoom(roomId);
-            if (room == null) return NotFound();
-            if (room.OwnerId != CurrentUserId) return Forbid();
-
-            _roomManager.SetDiscordStage(roomId, request.BotToken, request.StageId);
-            return Ok();
-        }
-
         [HttpPost("Rooms/{roomId}/SyncStage")]
-        public async Task<ActionResult> SyncStage(string roomId, [FromBody] string title)
+        public async Task<ActionResult> SyncStage(string roomId, [FromBody] SyncDiscordStageRequest request)
         {
+            var title = request?.Title ?? string.Empty;
             if (string.IsNullOrWhiteSpace(title)) return BadRequest("Discord stage title is required.");
 
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
             if (!CanManage(room)) return Forbid();
 
-            await _roomManager.UpdateDiscordStage(roomId, title);
-            return Ok();
+            var config = Plugin.Instance?.Configuration;
+            var updated = await _roomManager.UpdateDiscordStage(
+                roomId,
+                title,
+                EffectiveDiscordBotToken(config),
+                config?.DiscordStageId);
+            return updated ? Ok() : BadRequest("Discord Stage is not configured in global settings.");
         }
 
         private bool CanView(JellTogetherRoom room)
@@ -935,6 +1135,45 @@ namespace JellTogether.Plugin.Api
             if (Plugin.Instance?.Configuration.AllowParticipantQueueAdds == false) return false;
             return !room.Permissions.TryGetValue(CurrentUserId, out var permissions) ||
                 permissions.CanAddToQueue;
+        }
+
+        private static StartWatchPartyResult RedactPlaybackDiagnostics(StartWatchPartyResult result)
+        {
+            result.ControllingSessionId = string.Empty;
+            result.ControllingUserId = string.Empty;
+            result.FailedSessionIds = new List<string>();
+            result.Attempts = result.Attempts
+                .Select(attempt => new PlaybackStartAttempt
+                {
+                    Success = attempt.Success,
+                    Status = attempt.Status
+                })
+                .ToList();
+            result.AvailableTargets = result.AvailableTargets
+                .Select(target => new PlaybackTargetDto
+                {
+                    IsActive = target.IsActive,
+                    SupportsRemoteControl = target.SupportsRemoteControl,
+                    SupportsMediaControl = target.SupportsMediaControl,
+                    IsAndroidTv = target.IsAndroidTv,
+                    CanStartPlayback = target.CanStartPlayback,
+                    EligibilityReason = target.EligibilityReason
+                })
+                .ToList();
+            return result;
+        }
+
+        private static string EffectiveDiscordBotToken(JellTogether.Plugin.Configuration.PluginConfiguration? config)
+        {
+            var environmentToken = Environment.GetEnvironmentVariable("JELLTOGETHER_DISCORD_BOT_TOKEN");
+            return !string.IsNullOrWhiteSpace(environmentToken)
+                ? TrimToLimit(environmentToken, 256)
+                : TrimToLimit(config?.DiscordBotToken ?? string.Empty, 256);
+        }
+
+        private static bool IsDiscordBotTokenFromEnvironment()
+        {
+            return !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("JELLTOGETHER_DISCORD_BOT_TOKEN"));
         }
 
         private JellTogetherRoom RoomForUser(JellTogetherRoom room)
@@ -1127,6 +1366,56 @@ namespace JellTogether.Plugin.Api
             return payload.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.String
                 ? value.GetString()
                 : null;
+        }
+
+        private static int? GetJsonInt(JsonElement payload, string propertyName)
+        {
+            return payload.TryGetProperty(propertyName, out var value) &&
+                value.ValueKind == JsonValueKind.Number &&
+                value.TryGetInt32(out var result)
+                    ? result
+                    : null;
+        }
+
+        private static async Task<List<JsonElement>> GetDiscordArray(string url, string botToken)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Authorization", $"Bot {TrimToLimit(botToken, 256)}");
+
+            using var response = await DiscordHttpClient.SendAsync(request);
+            if (!response.IsSuccessStatusCode) throw new InvalidOperationException("Discord API request failed.");
+
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            using var document = await JsonDocument.ParseAsync(stream);
+            if (document.RootElement.ValueKind != JsonValueKind.Array) return new List<JsonElement>();
+
+            return document.RootElement.EnumerateArray()
+                .Select(element => element.Clone())
+                .ToList();
+        }
+
+        private static async Task<JsonElement> GetDiscordObject(string url, string botToken)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Authorization", $"Bot {TrimToLimit(botToken, 256)}");
+
+            using var response = await DiscordHttpClient.SendAsync(request);
+            if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"Discord API returned {(int)response.StatusCode}.");
+
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            using var document = await JsonDocument.ParseAsync(stream);
+            if (document.RootElement.ValueKind != JsonValueKind.Object) throw new InvalidOperationException("Discord API did not return an object.");
+            return document.RootElement.Clone();
+        }
+
+        private static async Task PatchDiscordObject(string url, string botToken, object payload)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Patch, url);
+            request.Headers.Add("Authorization", $"Bot {TrimToLimit(botToken, 256)}");
+            request.Content = new StringContent(JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json");
+
+            using var response = await DiscordHttpClient.SendAsync(request);
+            if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"Discord API returned {(int)response.StatusCode} while updating the channel.");
         }
 
         private IActionResult StandaloneCompanion(string? code = null)
