@@ -692,20 +692,7 @@ namespace JellTogether.Plugin.Services
             }
         }
 
-        public void SetDiscordStage(string roomId, string botToken, string stageId)
-        {
-            lock (_roomLock)
-            {
-                if (_rooms.TryGetValue(roomId, out var room))
-                {
-                    room.DiscordBotToken = TrimToLimit(botToken, 256);
-                    room.DiscordStageId = TrimToLimit(stageId, 64);
-                    Touch(room);
-                }
-            }
-        }
-
-        public async Task UpdateDiscordStage(string roomId, string title)
+        public async Task<bool> UpdateDiscordStage(string roomId, string title, string? configuredBotToken = null, string? configuredStageId = null)
         {
             string? botToken;
             string? stageId;
@@ -713,29 +700,35 @@ namespace JellTogether.Plugin.Services
             {
                 if (!_rooms.TryGetValue(roomId, out var room))
                 {
-                    return;
+                    return false;
                 }
 
-                botToken = room.DiscordBotToken;
-                stageId = room.DiscordStageId;
+                botToken = string.IsNullOrWhiteSpace(configuredBotToken) ? room.DiscordBotToken : configuredBotToken;
+                stageId = string.IsNullOrWhiteSpace(configuredStageId) ? room.DiscordStageId : configuredStageId;
             }
 
-            if (!string.IsNullOrEmpty(botToken) && !string.IsNullOrEmpty(stageId))
+            if (!string.IsNullOrWhiteSpace(botToken) && !string.IsNullOrWhiteSpace(stageId))
             {
                 try
                 {
-                    var url = $"https://discord.com/api/v10/channels/{stageId}";
+                    var url = $"https://discord.com/api/v10/channels/{TrimToLimit(stageId, 64)}";
                     var payload = new { topic = $"🍿 Watching: {title}" };
                     var json = JsonSerializer.Serialize(payload);
 
                     var request = new HttpRequestMessage(new HttpMethod("PATCH"), url);
-                    request.Headers.Add("Authorization", $"Bot {botToken}");
+                    request.Headers.Add("Authorization", $"Bot {TrimToLimit(botToken, 256)}");
                     request.Content = new StringContent(json, Encoding.UTF8, "application/json");
 
-                    await _httpClient.SendAsync(request);
+                    var response = await _httpClient.SendAsync(request);
+                    return response.IsSuccessStatusCode;
                 }
-                catch { }
+                catch
+                {
+                    return false;
+                }
             }
+
+            return false;
         }
 
         private static async Task SendDiscordMessage(string url, string content)

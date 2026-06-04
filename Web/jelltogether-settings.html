@@ -20,6 +20,27 @@
         <section class="settings-section">
             <div class="settings-section-heading">
                 <div>
+                    <div class="section-label">Discord Stage</div>
+                    <p>Configure one server-wide Discord bot connection for watch party stage topic sync.</p>
+                </div>
+            </div>
+            <label class="field-label" for="settings-discord-stage-id">Stage Channel ID</label>
+            <input type="text" id="settings-discord-stage-id" class="glass-input" placeholder="Discord stage channel ID">
+            <label class="field-label" for="settings-discord-bot-token">Bot Token</label>
+            <input type="password" id="settings-discord-bot-token" class="glass-input" placeholder="Leave blank to keep the saved token">
+            <label class="settings-option-card compact-option">
+                <input type="checkbox" id="settings-discord-clear-token">
+                <span>
+                    <strong>Clear saved bot token</strong>
+                    <em>Remove the stored token on save.</em>
+                </span>
+            </label>
+            <div id="settings-discord-token-status" class="settings-note">No bot token saved.</div>
+        </section>
+
+        <section class="settings-section">
+            <div class="settings-section-heading">
+                <div>
                     <div class="section-label">Library Access</div>
                     <p>Choose which Jellyfin libraries JellTogether can search when hosts add media to a queue.</p>
                 </div>

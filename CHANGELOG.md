@@ -1,5 +1,10 @@
 # JellTogether Changelog
 
+## [2026-05-19] - Global Discord Stage settings
+- Moved Discord Stage bot configuration out of individual watch party rooms and into the administrator-only global settings page.
+- Added server-wide Discord Stage channel ID and bot token settings with saved-token status and a clear-token option.
+- Kept room-level Discord Stage sync as a host/co-host action that uses the global server configuration.
+
 ## [2026-05-17] - Theater controls and full revision history
 - Turned the theater screen into a host/co-host control surface for queued playback, media search, and playback targets.
 - Added a connected-server indicator with manual server switching.

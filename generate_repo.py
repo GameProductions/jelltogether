@@ -20,14 +20,26 @@ ZIP_NAME = f"jelltogether_{VERSION}.zip"
 ZIP_PATH = os.path.join(BASE_DIR, ZIP_NAME)
 REPO_JSON_PATH = os.path.join(BASE_DIR, "repository.json")
 MANIFEST_JSON_PATH = os.path.join(BASE_DIR, "manifest.json")
-CHANGELOG = """Establish compile-time single source of truth versioning, upgrade server indicators, and support playback modal back navigation.
+CHANGELOG = """Move Discord Stage bot settings to the global administrator settings page.
+
+- Moved Discord Stage bot configuration out of individual watch party rooms and into the administrator-only global settings page.
+- Added server-wide Discord Stage channel ID and bot token settings with saved-token status and a clear-token option.
+- Kept room-level Discord Stage sync as a host/co-host action that uses the global server configuration."""
+
+HISTORICAL_RELEASES = [
+    {
+        "version": "1.3.0.0",
+        "changelog": """Establish compile-time single source of truth versioning, upgrade server indicators, and support playback modal back navigation.
 
 - Consolidated system-wide version attributes into a single root-level version.txt file parsed dynamically during MSBuild compilation and release packaging.
 - Refactored the header server details card into an ultra-compact status button with real-time glowing connectivity indicators to resolve URL spacing issues.
 - Relocated long server connection host URLs into a gorgeous, dedicated Server Status details overlay modal.
-- Integrated full-stack back button navigation support inside diagnostic Playback Target details modals, resolving UI routing loops."""
-
-HISTORICAL_RELEASES = [
+- Integrated full-stack back button navigation support inside diagnostic Playback Target details modals, resolving UI routing loops.""",
+        "targetAbi": TARGET_ABI,
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.3.0.0/jelltogether_1.3.0.0.zip",
+        "checksum": "FCB5E191D10CFF714777F68706226F37",
+        "timestamp": "2026-05-18T01:59:01Z",
+    },
     {
         "version": "1.2.18.0",
         "changelog": """Add target device connection diagnostics, status checklists, and interactive troubleshooting guides.

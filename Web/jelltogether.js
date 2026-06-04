@@ -7,7 +7,7 @@ class JellTogetherApp {
         this.enabledLibraryIds = [];
         this.allowQueueVotingByDefault = true;
         this.allowParticipantQueueAdds = true;
-        this.pluginVersion = "1.2.18.0";
+        this.pluginVersion = "1.3.1.0";
         this.changelog = [];
         this.currentRoom = null;
         this.currentUser = "Unknown";
@@ -545,7 +545,7 @@ class JellTogetherApp {
 
     jellyfinAuthorizationHeader() {
         const deviceId = this.deviceId();
-        return `MediaBrowser Client="JellTogether Companion", Device="Browser", DeviceId="${deviceId}", Version="1.2.18.0"`;
+        return `MediaBrowser Client="JellTogether Companion", Device="Browser", DeviceId="${deviceId}", Version="1.3.1.0"`;
     }
 
     deviceId() {
@@ -1070,9 +1070,6 @@ class JellTogetherApp {
 
         const themeControls = document.getElementById('host-theme-controls');
         if (themeControls) themeControls.style.display = amAdmin ? 'grid' : 'none';
-
-        const discordControls = document.getElementById('host-discord-stage');
-        if (discordControls) discordControls.style.display = amOwner ? 'grid' : 'none';
 
         const canInvite = amAdmin || this.currentRoom.allowParticipantInvites;
         const inviteContainer = document.getElementById('invite-code-container');
@@ -2719,25 +2716,6 @@ class JellTogetherApp {
         else if (!this.isVR && document.exitFullscreen) document.exitFullscreen();
     }
 
-    async saveDiscordStage() {
-        const stageId = document.getElementById('discord-stage-id').value.trim();
-        const botToken = document.getElementById('discord-bot-token').value.trim();
-        if (!stageId || !botToken) {
-            this.showToast("Please enter both Discord Stage ID and bot token.", 'error');
-            return;
-        }
-
-        try {
-            const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/DiscordStage`, { botToken, stageId });
-            if (!resp.ok) throw new Error("Discord config failed");
-            document.getElementById('discord-bot-token').value = '';
-            this.showToast("Discord Stage configured.", 'success');
-        } catch (e) {
-            console.error("Discord Config Error:", e);
-            this.showToast("Failed to save Discord Stage settings.", 'error');
-        }
-    }
-
     async syncDiscordStage(titleOverride = null) {
         if (!titleOverride) {
             this.showModal('Sync Discord Stage', [
@@ -2751,12 +2729,12 @@ class JellTogetherApp {
         const title = titleOverride;
         if (!title || !title.trim()) return;
         try {
-            const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/SyncStage`, title.trim());
+            const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/SyncStage`, { title: title.trim() });
             if (!resp.ok) throw new Error("Discord sync failed");
             this.showToast("Discord Stage synced.", 'success');
         } catch (e) {
             console.error("Discord Sync Error:", e);
-            this.showToast("Failed to sync Discord Stage.", 'error');
+            this.showToast("Failed to sync Discord Stage. Check the global Discord settings.", 'error');
         }
     }
 
@@ -3117,7 +3095,7 @@ class JellTogetherApp {
         document.getElementById('lobby-view').style.display = view === 'lobby' ? 'block' : 'none';
         document.getElementById('party-view').style.display = view === 'party' ? 'block' : 'none';
         if (view === 'lobby') {
-            ['sidebar-tabs', 'participant-section', 'room-management', 'host-theme-controls', 'host-discord-stage', 'poll-section', 'reaction-bar', 'chat-container'].forEach(id => {
+            ['sidebar-tabs', 'participant-section', 'room-management', 'host-theme-controls', 'poll-section', 'reaction-bar', 'chat-container'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
             });

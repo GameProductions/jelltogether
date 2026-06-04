@@ -85,6 +85,10 @@ class JellTogetherSettingsApp {
             document.getElementById('settings-android-tv-targets').checked = this.settings.allowAndroidTvPlaybackTargets !== false;
             document.getElementById('settings-persist-history').checked = this.settings.persistRoomHistory !== false;
             document.getElementById('settings-invite-hours').value = this.settings.defaultInviteExpirationHours ?? 24;
+            document.getElementById('settings-discord-stage-id').value = this.settings.discordStageId || '';
+            document.getElementById('settings-discord-bot-token').value = '';
+            document.getElementById('settings-discord-clear-token').checked = false;
+            this.updateDiscordTokenStatus();
             this.updateCompanionPill();
         } catch (e) {
             console.error('JellTogether settings load failed:', e);
@@ -233,7 +237,10 @@ class JellTogetherSettingsApp {
             allowParticipantInvitesByDefault: document.getElementById('settings-participant-invites')?.checked === true,
             allowAndroidTvPlaybackTargets: document.getElementById('settings-android-tv-targets')?.checked === true,
             persistRoomHistory: document.getElementById('settings-persist-history')?.checked === true,
-            defaultInviteExpirationHours: parseInt(document.getElementById('settings-invite-hours')?.value || '24', 10)
+            defaultInviteExpirationHours: parseInt(document.getElementById('settings-invite-hours')?.value || '24', 10),
+            discordStageId: document.getElementById('settings-discord-stage-id')?.value?.trim() || '',
+            discordBotToken: document.getElementById('settings-discord-bot-token')?.value?.trim() || '',
+            clearDiscordBotToken: document.getElementById('settings-discord-clear-token')?.checked === true
         };
 
         try {
@@ -243,12 +250,27 @@ class JellTogetherSettingsApp {
                 body: JSON.stringify(payload)
             });
             if (!resp.ok) throw new Error(`Save failed with ${resp.status}`);
-            this.settings = { ...this.settings, ...payload };
+            this.settings = {
+                ...this.settings,
+                ...payload,
+                hasDiscordBotToken: payload.clearDiscordBotToken ? false : Boolean(payload.discordBotToken || this.settings?.hasDiscordBotToken)
+            };
+            document.getElementById('settings-discord-bot-token').value = '';
+            document.getElementById('settings-discord-clear-token').checked = false;
+            this.updateDiscordTokenStatus();
             this.toast('JellTogether settings saved.', 'success');
         } catch (e) {
             console.error('JellTogether settings save failed:', e);
             this.toast('Could not save settings.', 'error');
         }
+    }
+
+    updateDiscordTokenStatus() {
+        const status = document.getElementById('settings-discord-token-status');
+        if (!status) return;
+        status.textContent = this.settings?.hasDiscordBotToken
+            ? 'A Discord bot token is saved. Enter a new token to replace it, or choose clear saved bot token.'
+            : 'No bot token saved.';
     }
 
     textEl(tag, text, className = null) {

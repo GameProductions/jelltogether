@@ -1400,6 +1400,17 @@ h1 {
     max-width: 160px;
 }
 
+.settings-option-card.compact-option {
+    min-height: 0;
+    max-width: 420px;
+}
+
+.settings-note {
+    color: var(--text-dim);
+    font-size: 0.78rem;
+    line-height: 1.45;
+}
+
 .media-search-results {
     max-height: 360px;
     overflow-y: auto;
@@ -2722,5 +2733,4 @@ body.theme-scifi {
 .trouble-steps-list li strong {
     color: var(--text-main);
 }
-
 

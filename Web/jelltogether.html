@@ -8,7 +8,7 @@
                 <div class="logo">
                     <img src="configurationpage?name=logo.png" alt="" aria-hidden="true" onerror="this.onerror=null;this.src='../logo.png';">
                     <span>JellTogether</span>
-                    <em class="version-badge" data-plugin-version>v1.2.18.0</em>
+                    <em class="version-badge" data-plugin-version>v1.3.1.0</em>
                 </div>
                 <div class="user-profile">
                     <div class="user-profile-copy">
@@ -142,6 +142,7 @@
                     <div class="room-management-grid">
                         <button class="secondary-command compact" onclick="app.generateAdvancedInvite()">Invite Rules</button>
                         <button id="btn-toggle-queue-voting" class="secondary-command compact" onclick="app.toggleQueueVoting()">Queue Voting</button>
+                        <button class="secondary-command compact" onclick="app.syncDiscordStage()">Sync Discord</button>
                         <button class="danger-command compact" onclick="app.deleteRoom()">Delete Room</button>
                     </div>
                     <div class="room-note">Edit the room name directly in the page title.</div>
@@ -159,15 +160,6 @@
                     </div>
                 </div>
 
-                <div id="host-discord-stage" class="admin-group" style="display: none;">
-                    <div class="section-label">Discord Stage</div>
-                    <input type="text" id="discord-stage-id" placeholder="Stage Channel ID" class="chat-input">
-                    <input type="password" id="discord-bot-token" placeholder="Bot Token" class="chat-input">
-                    <div class="split-actions">
-                        <button class="secondary-command" onclick="app.saveDiscordStage()">Save</button>
-                        <button class="primary-command" onclick="app.syncDiscordStage()">Sync</button>
-                    </div>
-                </div>
             </div>
 
             <div id="sidebar-tab-people" class="sidebar-tab-panel" data-tab-panel="people" hidden>
