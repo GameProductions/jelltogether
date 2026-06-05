@@ -315,7 +315,10 @@ class JellTogetherSettingsApp {
 
         try {
             const result = await this.fetchJson('/jelltogether/Discord/StageChannels');
-            this.discordStageChannels = Array.isArray(result.channels) ? result.channels : [];
+            const channels = this.discordProp(result, 'channels', []);
+            this.discordStageChannels = Array.isArray(channels)
+                ? channels.map(channel => this.normalizeDiscordStageChannel(channel)).filter(channel => channel.id)
+                : [];
             this.renderDiscordStageControl();
         } catch (e) {
             console.error('Discord Stage channel load failed:', e);
@@ -447,12 +450,14 @@ class JellTogetherSettingsApp {
             });
             const result = await this.responsePayload(resp);
             if (!resp.ok) throw result;
-            this.toast(result?.status || 'Discord Stage connection is ready.', 'success');
-            this.showDiscordTestResult(result, 'Discord Connection Ready');
+            const normalized = this.normalizeDiscordTestResult(result);
+            this.toast(normalized.status || 'Discord Stage connection is ready.', normalized.success === false ? 'info' : 'success');
+            this.showDiscordTestResult(normalized, 'Discord Connection Ready');
         } catch (e) {
             console.error('Discord Stage test failed:', e);
-            this.toast('Discord Stage connection test failed.', 'error');
-            this.showDiscordTestResult(e, 'Discord Connection Failed');
+            const normalized = this.normalizeDiscordTestResult(e);
+            this.toast(normalized.status || 'Discord Stage connection test failed.', 'error');
+            this.showDiscordTestResult(normalized, 'Discord Connection Failed');
         }
     }
 
@@ -483,12 +488,47 @@ class JellTogetherSettingsApp {
         panel.appendChild(this.textEl('span', result?.status || 'No detailed status was returned.'));
         if (result?.channelName) panel.appendChild(this.textEl('span', `Channel: ${result.channelName}`));
         if (result?.channelId) panel.appendChild(this.textEl('span', `Channel ID: ${result.channelId}`));
+        if (result?.guildName) panel.appendChild(this.textEl('span', `Server: ${result.guildName}`));
         if (result?.guildId) panel.appendChild(this.textEl('span', `Server ID: ${result.guildId}`));
         checks.forEach(check => panel.appendChild(this.textEl('span', `Passed: ${check}`)));
     }
 
     stageChannelLabel(channel) {
         return channel?.label || `${channel?.guildName || 'Discord server'} / ${channel?.name || 'Stage channel'}`;
+    }
+
+    normalizeDiscordStageChannel(channel) {
+        const normalized = {
+            id: String(this.discordProp(channel, 'id', '') || ''),
+            name: this.discordProp(channel, 'name', 'Stage channel') || 'Stage channel',
+            guildId: String(this.discordProp(channel, 'guildId', '') || ''),
+            guildName: this.discordProp(channel, 'guildName', 'Discord server') || 'Discord server'
+        };
+        normalized.label = this.discordProp(channel, 'label', `${normalized.guildName} / ${normalized.name}`);
+        return normalized;
+    }
+
+    normalizeDiscordTestResult(result) {
+        if (!result || typeof result !== 'object') {
+            return { success: false, status: String(result || 'No detailed status was returned.'), checks: [] };
+        }
+
+        return {
+            success: this.discordProp(result, 'success', false) === true,
+            status: this.discordProp(result, 'status', ''),
+            channelId: this.discordProp(result, 'channelId', ''),
+            channelName: this.discordProp(result, 'channelName', ''),
+            guildId: this.discordProp(result, 'guildId', ''),
+            guildName: this.discordProp(result, 'guildName', ''),
+            checks: this.discordProp(result, 'checks', [])
+        };
+    }
+
+    discordProp(source, camelName, fallback = '') {
+        if (!source || typeof source !== 'object') return fallback;
+        if (source[camelName] !== undefined) return source[camelName];
+        const pascalName = `${camelName.charAt(0).toUpperCase()}${camelName.slice(1)}`;
+        return source[pascalName] !== undefined ? source[pascalName] : fallback;
     }
 
     textEl(tag, text, className = null) {

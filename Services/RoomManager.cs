@@ -711,8 +711,8 @@ namespace JellTogether.Plugin.Services
             {
                 try
                 {
-                    var url = $"https://discord.com/api/v10/channels/{TrimToLimit(stageId, 64)}";
-                    var payload = new { topic = $"🍿 Watching: {title}" };
+                    var url = $"https://discord.com/api/v10/stage-instances/{TrimToLimit(stageId, 64)}";
+                    var payload = new { topic = TrimToLimit($"🍿 Watching: {title}", 120) };
                     var json = JsonSerializer.Serialize(payload);
 
                     var request = new HttpRequestMessage(new HttpMethod("PATCH"), url);

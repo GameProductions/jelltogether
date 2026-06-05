@@ -72,6 +72,7 @@ namespace JellTogether.Plugin.Api
         public string ChannelId { get; set; } = string.Empty;
         public string ChannelName { get; set; } = string.Empty;
         public string GuildId { get; set; } = string.Empty;
+        public string GuildName { get; set; } = string.Empty;
         public List<string> Checks { get; set; } = new();
     }
 
@@ -413,6 +414,7 @@ namespace JellTogether.Plugin.Api
                 result.Checks.Add("Bot token can read the channel.");
                 result.ChannelName = GetJsonString(channel, "name") ?? "Stage channel";
                 result.GuildId = GetJsonString(channel, "guild_id") ?? string.Empty;
+                result.GuildName = await DiscordGuildName(result.GuildId, token);
 
                 if (GetJsonInt(channel, "type") != 13)
                 {
@@ -421,9 +423,21 @@ namespace JellTogether.Plugin.Api
                 }
 
                 result.Checks.Add("Selected channel is a Discord Stage channel.");
-                var currentTopic = GetJsonString(channel, "topic") ?? string.Empty;
-                await PatchDiscordObject($"https://discord.com/api/v10/channels/{Uri.EscapeDataString(TrimToLimit(stageId, 64))}", token, new { topic = currentTopic });
-                result.Checks.Add("Bot can manage the Stage channel topic.");
+                var stageInstance = await TryGetDiscordObject($"https://discord.com/api/v10/stage-instances/{Uri.EscapeDataString(TrimToLimit(stageId, 64))}", token);
+                if (stageInstance == null)
+                {
+                    result.Success = true;
+                    result.Status = "Discord Stage channel is valid. Start the Stage in Discord before syncing the topic.";
+                    result.Checks.Add("No live Stage instance is currently running.");
+                    return Ok(result);
+                }
+
+                var currentTopic = GetJsonString(stageInstance.Value, "topic");
+                if (!string.IsNullOrWhiteSpace(currentTopic))
+                {
+                    await PatchDiscordObject($"https://discord.com/api/v10/stage-instances/{Uri.EscapeDataString(TrimToLimit(stageId, 64))}", token, new { topic = TrimToLimit(currentTopic, 120) });
+                    result.Checks.Add("Bot can manage the live Stage topic.");
+                }
                 result.Success = true;
                 result.Status = "Discord Stage connection is ready.";
                 return Ok(result);
@@ -1406,6 +1420,34 @@ namespace JellTogether.Plugin.Api
             using var document = await JsonDocument.ParseAsync(stream);
             if (document.RootElement.ValueKind != JsonValueKind.Object) throw new InvalidOperationException("Discord API did not return an object.");
             return document.RootElement.Clone();
+        }
+
+        private static async Task<JsonElement?> TryGetDiscordObject(string url, string botToken)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Authorization", $"Bot {TrimToLimit(botToken, 256)}");
+
+            using var response = await DiscordHttpClient.SendAsync(request);
+            if (!response.IsSuccessStatusCode) return null;
+
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            using var document = await JsonDocument.ParseAsync(stream);
+            return document.RootElement.ValueKind == JsonValueKind.Object ? document.RootElement.Clone() : null;
+        }
+
+        private static async Task<string> DiscordGuildName(string guildId, string botToken)
+        {
+            if (string.IsNullOrWhiteSpace(guildId)) return string.Empty;
+
+            try
+            {
+                var guild = await TryGetDiscordObject($"https://discord.com/api/v10/guilds/{Uri.EscapeDataString(guildId)}", botToken);
+                return guild == null ? string.Empty : GetJsonString(guild.Value, "name") ?? string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
         }
 
         private static async Task PatchDiscordObject(string url, string botToken, object payload)
