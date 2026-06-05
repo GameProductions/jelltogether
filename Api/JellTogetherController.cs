@@ -432,12 +432,8 @@ namespace JellTogether.Plugin.Api
                     return Ok(result);
                 }
 
-                var currentTopic = GetJsonString(stageInstance.Value, "topic");
-                if (!string.IsNullOrWhiteSpace(currentTopic))
-                {
-                    await PatchDiscordObject($"https://discord.com/api/v10/stage-instances/{Uri.EscapeDataString(TrimToLimit(stageId, 64))}", token, new { topic = TrimToLimit(currentTopic, 120) });
-                    result.Checks.Add("Bot can manage the live Stage topic.");
-                }
+                result.Checks.Add("Live Stage instance is currently running.");
+                result.Checks.Add("Topic sync will use Discord Stage Instance permissions when playback starts.");
                 result.Success = true;
                 result.Status = "Discord Stage connection is ready.";
                 return Ok(result);
@@ -1457,7 +1453,7 @@ namespace JellTogether.Plugin.Api
             request.Content = new StringContent(JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json");
 
             using var response = await DiscordHttpClient.SendAsync(request);
-            if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"Discord API returned {(int)response.StatusCode} while updating the channel.");
+            if (!response.IsSuccessStatusCode) throw new InvalidOperationException($"Discord API returned {(int)response.StatusCode} while updating the Stage topic.");
         }
 
         private IActionResult StandaloneCompanion(string? code = null)

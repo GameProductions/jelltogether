@@ -29,6 +29,7 @@ CHANGELOG = """Republish Discord Stage settings and playback diagnostics as a fr
 - Added JELLTOGETHER_DISCORD_BOT_TOKEN support for server/container-provided bot tokens that override UI-saved tokens.
 - Fixed detected Stage channel display so server and channel names render reliably from Discord API responses.
 - Fixed Discord connection tests and topic sync to use Discord Stage Instance endpoints for live Stage topics.
+- Made the Discord Stage connection test non-mutating so it no longer fails when the bot can read a Stage channel but cannot edit the live Stage topic.
 - Added playback start diagnostics to trace Jellyfin target eligibility and command failures.
 - Bumped the package version so Jellyfin refreshes the repository entry, release asset URL, and checksum."""
 

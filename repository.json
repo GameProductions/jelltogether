@@ -9,12 +9,12 @@
     "category": "Social",
     "versions": [
       {
-        "version": "1.3.3.0",
-        "changelog": "Republish Discord Stage settings and playback diagnostics as a fresh Jellyfin patch release.\n\n- Moved Discord Stage bot configuration out of individual watch party rooms and into the administrator-only global settings page.\n- Added server-wide Discord Stage channel ID and bot token settings with saved-token status and a clear-token option.\n- Kept room-level Discord Stage sync as a host/co-host action that uses the global server configuration.\n- Added collapsible Discord bot setup requirements, Stage channel discovery, manual channel ID fallback, and a Discord connection test.\n- Added JELLTOGETHER_DISCORD_BOT_TOKEN support for server/container-provided bot tokens that override UI-saved tokens.\n- Fixed detected Stage channel display so server and channel names render reliably from Discord API responses.\n- Fixed Discord connection tests and topic sync to use Discord Stage Instance endpoints for live Stage topics.\n- Added playback start diagnostics to trace Jellyfin target eligibility and command failures.\n- Bumped the package version so Jellyfin refreshes the repository entry, release asset URL, and checksum.",
+        "version": "1.3.4.0",
+        "changelog": "Republish Discord Stage settings and playback diagnostics as a fresh Jellyfin patch release.\n\n- Moved Discord Stage bot configuration out of individual watch party rooms and into the administrator-only global settings page.\n- Added server-wide Discord Stage channel ID and bot token settings with saved-token status and a clear-token option.\n- Kept room-level Discord Stage sync as a host/co-host action that uses the global server configuration.\n- Added collapsible Discord bot setup requirements, Stage channel discovery, manual channel ID fallback, and a Discord connection test.\n- Added JELLTOGETHER_DISCORD_BOT_TOKEN support for server/container-provided bot tokens that override UI-saved tokens.\n- Fixed detected Stage channel display so server and channel names render reliably from Discord API responses.\n- Fixed Discord connection tests and topic sync to use Discord Stage Instance endpoints for live Stage topics.\n- Made the Discord Stage connection test non-mutating so it no longer fails when the bot can read a Stage channel but cannot edit the live Stage topic.\n- Added playback start diagnostics to trace Jellyfin target eligibility and command failures.\n- Bumped the package version so Jellyfin refreshes the repository entry, release asset URL, and checksum.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.3.3.0/jelltogether_1.3.3.0.zip",
-        "checksum": "31E5C22F191231E47267C876B204349C",
-        "timestamp": "2026-06-05T22:48:36Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.3.4.0/jelltogether_1.3.4.0.zip",
+        "checksum": "23CEA06BBD45D6323A4F6B7D2D936E21",
+        "timestamp": "2026-06-05T22:58:35Z"
       },
       {
         "version": "1.3.0.0",
