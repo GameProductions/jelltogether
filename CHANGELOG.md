@@ -1,5 +1,16 @@
 # JellTogether Changelog
 
+## [2026-06-05] - Full-stack security and stability hardening
+- Moved standalone companion Jellyfin access tokens from persistent local storage into server-scoped session storage and removed broad localStorage token discovery.
+- Replaced dynamic HTML injection with safe DOM construction in companion status, diagnostics, and troubleshooting UI.
+- Changed immersive headset support to a safe theater-mode fallback until a full WebXR render layer is available.
+- Added atomic room persistence with backup recovery so corrupted room storage no longer clears all rooms.
+- Added server-side Jellyfin media and library validation before queueing or starting playback.
+- Tightened participant-created invites so only room participants can create them and non-host invites cannot grant playback control.
+- Scoped Discord Stage chat sync to the active synced party room and added bounded Discord HTTP timeouts.
+- Added standalone companion security headers and stricter forwarded-proto handling.
+- Removed shell execution from the release helper.
+
 ## [2026-05-19] - Discord Stage connection fixes
 - Moved Discord Stage bot configuration out of individual watch party rooms and into the administrator-only global settings page.
 - Added server-wide Discord Stage channel ID and bot token settings with saved-token status and a clear-token option.
@@ -9,6 +20,9 @@
 - Fixed detected Stage channel display so server and channel names render reliably from Discord API responses.
 - Fixed Discord connection tests and topic sync to use Discord Stage Instance endpoints for live Stage topics.
 - Made the Discord Stage connection test non-mutating so it no longer fails when the bot can read a Stage channel but cannot edit the live Stage topic.
+- Added optional Discord Stage chat sync between the active Stage channel chat and active JellTogether party rooms.
+- Improved Jellyfin playback session matching and controller fallbacks for standalone companion sessions.
+- Added WebXR-aware immersive mode handling with secure-context detection, XR session cleanup, and headset-friendly fallback layout.
 - Added playback start diagnostics to trace Jellyfin target eligibility and command failures.
 
 ## [2026-05-17] - Theater controls and full revision history

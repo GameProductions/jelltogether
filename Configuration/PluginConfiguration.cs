@@ -19,5 +19,7 @@ namespace JellTogether.Plugin.Configuration
         public int DefaultInviteExpirationHours { get; set; } = 24;
         public string DiscordStageId { get; set; } = string.Empty;
         public string DiscordBotToken { get; set; } = string.Empty;
+        public bool EnableDiscordStageChatSync { get; set; } = true;
+        public string ActiveDiscordStageRoomId { get; set; } = string.Empty;
     }
 }

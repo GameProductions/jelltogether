@@ -42,6 +42,8 @@ namespace JellTogether.Plugin.Services
         [JsonIgnore]
         public string? DiscordBotToken { get; set; }
         public string? DiscordStageId { get; set; }
+        public string LastDiscordChatMessageId { get; set; } = string.Empty;
+        public DateTime? LastDiscordChatSyncAt { get; set; }
         public List<string> RecentReactions { get; set; } = new();
         public string NowPlayingTitle { get; set; } = string.Empty;
         public string NowPlayingMediaId { get; set; } = string.Empty;
@@ -144,6 +146,8 @@ namespace JellTogether.Plugin.Services
         public string ReplyToText { get; set; } = string.Empty;
         public List<string> Mentions { get; set; } = new();
         public Dictionary<string, List<string>> Reactions { get; set; } = new();
+        public string Source { get; set; } = "jelltogether";
+        public string ExternalMessageId { get; set; } = string.Empty;
         public DateTime Timestamp { get; set; } = DateTime.UtcNow;
     }
 
@@ -153,7 +157,10 @@ namespace JellTogether.Plugin.Services
         private readonly string _storagePath;
         private readonly object _fileLock = new();
         private readonly object _roomLock = new();
-        private static readonly HttpClient _httpClient = new();
+        private static readonly HttpClient _httpClient = new()
+        {
+            Timeout = TimeSpan.FromSeconds(8)
+        };
         private static readonly JsonSerializerOptions SerializerOptions = new() { WriteIndented = true };
 
         public RoomManager(string configPath)
@@ -169,7 +176,22 @@ namespace JellTogether.Plugin.Services
                 try
                 {
                     var json = JsonSerializer.Serialize(_rooms.Values, SerializerOptions);
-                    File.WriteAllText(_storagePath, json);
+                    var directory = Path.GetDirectoryName(_storagePath);
+                    if (!string.IsNullOrWhiteSpace(directory))
+                    {
+                        Directory.CreateDirectory(directory);
+                    }
+
+                    var tempPath = $"{_storagePath}.{Guid.NewGuid():N}.tmp";
+                    var backupPath = $"{_storagePath}.bak";
+                    File.WriteAllText(tempPath, json);
+
+                    if (File.Exists(_storagePath))
+                    {
+                        File.Copy(_storagePath, backupPath, overwrite: true);
+                    }
+
+                    File.Move(tempPath, _storagePath, overwrite: true);
                 }
                 catch (IOException ex)
                 {
@@ -186,22 +208,43 @@ namespace JellTogether.Plugin.Services
         {
             lock (_fileLock)
             {
-                try
+                var rooms = TryReadRooms(_storagePath);
+                if (rooms == null)
                 {
-                    if (File.Exists(_storagePath))
+                    rooms = TryReadRooms($"{_storagePath}.bak");
+                }
+
+                if (rooms == null) return;
+
+                foreach (var room in rooms)
+                {
+                    if (!string.IsNullOrWhiteSpace(room.Id))
                     {
-                        var json = File.ReadAllText(_storagePath);
-                        var rooms = JsonSerializer.Deserialize<List<JellTogetherRoom>>(json);
-                        if (rooms != null)
-                        {
-                            foreach (var room in rooms) _rooms[room.Id] = room;
-                        }
+                        _rooms[room.Id] = room;
                     }
                 }
-                catch
-                {
-                    _rooms.Clear();
-                }
+            }
+        }
+
+        private static List<JellTogetherRoom>? TryReadRooms(string path)
+        {
+            try
+            {
+                if (!File.Exists(path)) return null;
+                var json = File.ReadAllText(path);
+                return JsonSerializer.Deserialize<List<JellTogetherRoom>>(json);
+            }
+            catch (JsonException)
+            {
+                return null;
+            }
+            catch (IOException)
+            {
+                return null;
+            }
+            catch (UnauthorizedAccessException)
+            {
+                return null;
             }
         }
 
@@ -573,7 +616,34 @@ namespace JellTogether.Plugin.Services
                 }
 
                 message.Text = TrimToLimit(message.Text, 1000);
+                message.Source = string.IsNullOrWhiteSpace(message.Source) ? "jelltogether" : TrimToLimit(message.Source, 32);
                 room.Messages.Add(message);
+                room.LastMessagePreview = $"{message.UserName}: {message.Text}";
+                if (room.Messages.Count > 100) room.Messages.RemoveAt(0);
+                room.Stats.TotalMessages++;
+                room.Stats.TopChatter = message.UserId;
+                Touch(room);
+                return true;
+            }
+        }
+
+        public bool AddDiscordMessage(string roomId, ChatMessage message, string discordMessageId)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room)) return false;
+                discordMessageId = TrimToLimit(discordMessageId, 64);
+                if (string.IsNullOrWhiteSpace(discordMessageId)) return false;
+                if (room.Messages.Any(existing => existing.Source == "discord" && existing.ExternalMessageId == discordMessageId)) return false;
+
+                message.UserId = string.IsNullOrWhiteSpace(message.UserId) ? $"discord:{discordMessageId}" : TrimToLimit(message.UserId, 96);
+                message.UserName = string.IsNullOrWhiteSpace(message.UserName) ? "Discord" : TrimToLimit(message.UserName, 80);
+                message.Text = TrimToLimit(message.Text, 1000);
+                message.Source = "discord";
+                message.ExternalMessageId = discordMessageId;
+                message.Timestamp = message.Timestamp == default ? DateTime.UtcNow : message.Timestamp;
+                room.Messages.Add(message);
+                room.LastDiscordChatMessageId = MaxSnowflake(room.LastDiscordChatMessageId, discordMessageId);
                 room.LastMessagePreview = $"{message.UserName}: {message.Text}";
                 if (room.Messages.Count > 100) room.Messages.RemoveAt(0);
                 room.Stats.TotalMessages++;
@@ -729,6 +799,133 @@ namespace JellTogether.Plugin.Services
             }
 
             return false;
+        }
+
+        public async Task SyncMessageToDiscordStage(string roomId, ChatMessage message, string? configuredBotToken, string? configuredStageId, bool enabled)
+        {
+            if (!enabled || message.Source == "discord" || string.IsNullOrWhiteSpace(message.Text)) return;
+
+            string? botToken;
+            string? stageId;
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room)) return;
+                botToken = string.IsNullOrWhiteSpace(configuredBotToken) ? room.DiscordBotToken : configuredBotToken;
+                stageId = string.IsNullOrWhiteSpace(configuredStageId) ? room.DiscordStageId : configuredStageId;
+            }
+
+            if (string.IsNullOrWhiteSpace(botToken) || string.IsNullOrWhiteSpace(stageId)) return;
+
+            try
+            {
+                var content = TrimToLimit($"**{message.UserName}:** {message.Text}", 1900);
+                var payload = JsonSerializer.Serialize(new
+                {
+                    content,
+                    allowed_mentions = new { parse = Array.Empty<string>() }
+                });
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"https://discord.com/api/v10/channels/{TrimToLimit(stageId, 64)}/messages");
+                request.Headers.Add("Authorization", $"Bot {TrimToLimit(botToken, 256)}");
+                request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                await _httpClient.SendAsync(request, cts.Token);
+            }
+            catch
+            {
+                // Chat sync is best-effort and should never block the local party chat.
+            }
+        }
+
+        public async Task<int> PullDiscordStageMessages(string roomId, string? configuredBotToken, string? configuredStageId, bool enabled)
+        {
+            if (!enabled) return 0;
+
+            string? botToken;
+            string? stageId;
+            string lastMessageId;
+            DateTime? lastSyncAt;
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room)) return 0;
+                botToken = string.IsNullOrWhiteSpace(configuredBotToken) ? room.DiscordBotToken : configuredBotToken;
+                stageId = string.IsNullOrWhiteSpace(configuredStageId) ? room.DiscordStageId : configuredStageId;
+                lastMessageId = room.LastDiscordChatMessageId;
+                lastSyncAt = room.LastDiscordChatSyncAt;
+                if (lastSyncAt.HasValue && DateTime.UtcNow - lastSyncAt.Value < TimeSpan.FromSeconds(4))
+                {
+                    return 0;
+                }
+
+                room.LastDiscordChatSyncAt = DateTime.UtcNow;
+            }
+
+            if (string.IsNullOrWhiteSpace(botToken) || string.IsNullOrWhiteSpace(stageId)) return 0;
+
+            try
+            {
+                var url = $"https://discord.com/api/v10/channels/{TrimToLimit(stageId, 64)}/messages?limit=25";
+                if (!string.IsNullOrWhiteSpace(lastMessageId))
+                {
+                    url += $"&after={Uri.EscapeDataString(lastMessageId)}";
+                }
+
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("Authorization", $"Bot {TrimToLimit(botToken, 256)}");
+                using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                using var response = await _httpClient.SendAsync(request, cts.Token);
+                if (!response.IsSuccessStatusCode) return 0;
+
+                await using var stream = await response.Content.ReadAsStreamAsync();
+                using var document = await JsonDocument.ParseAsync(stream);
+                if (document.RootElement.ValueKind != JsonValueKind.Array) return 0;
+
+                var added = 0;
+                var messages = document.RootElement.EnumerateArray()
+                    .Select(message => message.Clone())
+                    .OrderBy(message => JsonString(message, "id"), StringComparer.Ordinal)
+                    .ToList();
+
+                foreach (var discordMessage in messages)
+                {
+                    var id = JsonString(discordMessage, "id");
+                    if (string.IsNullOrWhiteSpace(id)) continue;
+                    SetLastDiscordMessageId(roomId, id);
+                    if (IsDiscordBotMessage(discordMessage)) continue;
+
+                    var content = JsonString(discordMessage, "content");
+                    if (string.IsNullOrWhiteSpace(content)) continue;
+
+                    var author = discordMessage.TryGetProperty("author", out var authorElement) ? authorElement : default;
+                    var authorId = author.ValueKind == JsonValueKind.Object ? JsonString(author, "id") : string.Empty;
+                    var authorName = author.ValueKind == JsonValueKind.Object
+                        ? JsonString(author, "global_name") ?? JsonString(author, "username") ?? "Discord"
+                        : "Discord";
+
+                    var timestamp = DateTime.UtcNow;
+                    var timestampText = JsonString(discordMessage, "timestamp");
+                    if (!string.IsNullOrWhiteSpace(timestampText) && DateTime.TryParse(timestampText, out var parsed))
+                    {
+                        timestamp = parsed.ToUniversalTime();
+                    }
+
+                    if (AddDiscordMessage(roomId, new ChatMessage
+                    {
+                        UserId = $"discord:{authorId}",
+                        UserName = authorName,
+                        Text = content,
+                        Timestamp = timestamp
+                    }, id))
+                    {
+                        added++;
+                    }
+                }
+
+                return added;
+            }
+            catch
+            {
+                return 0;
+            }
         }
 
         private static async Task SendDiscordMessage(string url, string content)
@@ -973,6 +1170,42 @@ namespace JellTogether.Plugin.Services
                 (uri.Host.Equals("discord.com", StringComparison.OrdinalIgnoreCase) ||
                  uri.Host.Equals("discordapp.com", StringComparison.OrdinalIgnoreCase)) &&
                 uri.AbsolutePath.StartsWith("/api/webhooks/", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void SetLastDiscordMessageId(string roomId, string messageId)
+        {
+            lock (_roomLock)
+            {
+                if (_rooms.TryGetValue(roomId, out var room))
+                {
+                    room.LastDiscordChatMessageId = MaxSnowflake(room.LastDiscordChatMessageId, messageId);
+                    room.LastDiscordChatSyncAt = DateTime.UtcNow;
+                }
+            }
+        }
+
+        private static bool IsDiscordBotMessage(JsonElement message)
+        {
+            if (!message.TryGetProperty("author", out var author) || author.ValueKind != JsonValueKind.Object) return false;
+            return author.TryGetProperty("bot", out var bot) && bot.ValueKind == JsonValueKind.True;
+        }
+
+        private static string? JsonString(JsonElement element, string propertyName)
+        {
+            if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(propertyName, out var property)) return null;
+            return property.ValueKind == JsonValueKind.String ? property.GetString() : null;
+        }
+
+        private static string MaxSnowflake(string current, string next)
+        {
+            if (string.IsNullOrWhiteSpace(current)) return next;
+            if (string.IsNullOrWhiteSpace(next)) return current;
+            if (ulong.TryParse(current, out var currentValue) && ulong.TryParse(next, out var nextValue))
+            {
+                return nextValue > currentValue ? next : current;
+            }
+
+            return string.CompareOrdinal(next, current) > 0 ? next : current;
         }
 
         private static string TrimToLimit(string value, int limit)

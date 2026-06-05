@@ -53,32 +53,6 @@ class JellTogetherSettingsApp {
             if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
         }
 
-        try {
-            for (let i = 0; i < localStorage.length; i++) {
-                const key = localStorage.key(i);
-                const value = key ? localStorage.getItem(key) : null;
-                if (!value || !value.includes('AccessToken')) continue;
-
-                const token = this.findAccessToken(JSON.parse(value));
-                if (token) return token;
-            }
-        } catch (e) {
-            console.error('JellTogether settings token lookup failed:', e);
-        }
-
-        return '';
-    }
-
-    findAccessToken(value) {
-        if (!value || typeof value !== 'object') return '';
-        if (typeof value.AccessToken === 'string' && value.AccessToken.trim()) return value.AccessToken.trim();
-        if (typeof value.accessToken === 'string' && value.accessToken.trim()) return value.accessToken.trim();
-
-        for (const child of Object.values(value)) {
-            const token = this.findAccessToken(child);
-            if (token) return token;
-        }
-
         return '';
     }
 
@@ -93,6 +67,7 @@ class JellTogetherSettingsApp {
             document.getElementById('settings-persist-history').checked = this.settings.persistRoomHistory !== false;
             document.getElementById('settings-invite-hours').value = this.settings.defaultInviteExpirationHours ?? 24;
             document.getElementById('settings-discord-stage-id').value = this.settings.discordStageId || '';
+            document.getElementById('settings-discord-chat-sync').checked = this.settings.enableDiscordStageChatSync !== false;
             document.getElementById('settings-discord-bot-token').value = '';
             document.getElementById('settings-discord-clear-token').checked = false;
             this.updateDiscordTokenStatus();
@@ -248,6 +223,7 @@ class JellTogetherSettingsApp {
             persistRoomHistory: document.getElementById('settings-persist-history')?.checked === true,
             defaultInviteExpirationHours: parseInt(document.getElementById('settings-invite-hours')?.value || '24', 10),
             discordStageId: this.selectedDiscordStageId(),
+            enableDiscordStageChatSync: document.getElementById('settings-discord-chat-sync')?.checked !== false,
             discordBotToken: this.isDiscordEnvironmentTokenActive() ? '' : (document.getElementById('settings-discord-bot-token')?.value?.trim() || ''),
             clearDiscordBotToken: this.isDiscordEnvironmentTokenActive() ? false : document.getElementById('settings-discord-clear-token')?.checked === true
         };

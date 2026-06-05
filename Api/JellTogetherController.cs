@@ -8,6 +8,8 @@ using System.Security.Claims;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using MediaBrowser.Common.Api;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Session;
 using Microsoft.AspNetCore.Authorization;
@@ -57,6 +59,7 @@ namespace JellTogether.Plugin.Api
         public string DiscordStageId { get; set; } = string.Empty;
         public string DiscordBotToken { get; set; } = string.Empty;
         public bool ClearDiscordBotToken { get; set; } = false;
+        public bool EnableDiscordStageChatSync { get; set; } = true;
     }
 
     public class DiscordStageTestRequest
@@ -110,6 +113,8 @@ namespace JellTogether.Plugin.Api
         public string SessionId { get; set; } = string.Empty;
         public string UserId { get; set; } = string.Empty;
         public string UserName { get; set; } = string.Empty;
+        public string MatchedParticipantId { get; set; } = string.Empty;
+        public string MatchReason { get; set; } = string.Empty;
         public string Client { get; set; } = string.Empty;
         public string DeviceName { get; set; } = string.Empty;
         public bool IsActive { get; set; }
@@ -136,6 +141,7 @@ namespace JellTogether.Plugin.Api
     public class PlaybackStartAttempt
     {
         public string SessionId { get; set; } = string.Empty;
+        public string ControllerSessionId { get; set; } = string.Empty;
         public string UserName { get; set; } = string.Empty;
         public string Client { get; set; } = string.Empty;
         public string DeviceName { get; set; } = string.Empty;
@@ -150,7 +156,11 @@ namespace JellTogether.Plugin.Api
     public class JellTogetherController : ControllerBase
     {
         private readonly ISessionManager _sessionManager;
-        private static readonly HttpClient DiscordHttpClient = new();
+        private readonly ILibraryManager _libraryManager;
+        private static readonly HttpClient DiscordHttpClient = new()
+        {
+            Timeout = TimeSpan.FromSeconds(8)
+        };
         private RoomManager _roomManager => Plugin.Instance?.RoomManager ?? throw new System.Exception("Plugin not initialized");
         private string CurrentUserId =>
             User.FindFirst(ClaimTypes.NameIdentifier)?.Value ??
@@ -159,9 +169,10 @@ namespace JellTogether.Plugin.Api
             User.Identity?.Name ??
             "Unknown";
 
-        public JellTogetherController(ISessionManager sessionManager)
+        public JellTogetherController(ISessionManager sessionManager, ILibraryManager libraryManager)
         {
             _sessionManager = sessionManager;
+            _libraryManager = libraryManager;
         }
 
         [HttpGet]
@@ -264,6 +275,7 @@ namespace JellTogether.Plugin.Api
                 discordStageId = config?.DiscordStageId ?? string.Empty,
                 hasDiscordBotToken = !string.IsNullOrWhiteSpace(EffectiveDiscordBotToken(config)),
                 discordBotTokenSource = IsDiscordBotTokenFromEnvironment() ? "environment" : "configuration",
+                enableDiscordStageChatSync = config?.EnableDiscordStageChatSync ?? true,
                 pluginVersion = PluginVersion(),
                 changelog = ChangelogEntries()
             });
@@ -303,6 +315,7 @@ namespace JellTogether.Plugin.Api
             config.PersistRoomHistory = request.PersistRoomHistory;
             config.DefaultInviteExpirationHours = Math.Clamp(request.DefaultInviteExpirationHours, 0, 24 * 30);
             config.DiscordStageId = TrimToLimit(request.DiscordStageId, 64);
+            config.EnableDiscordStageChatSync = request.EnableDiscordStageChatSync;
             if (IsDiscordBotTokenFromEnvironment())
             {
                 // Server-provided secrets intentionally override UI-managed token changes.
@@ -423,6 +436,15 @@ namespace JellTogether.Plugin.Api
                 }
 
                 result.Checks.Add("Selected channel is a Discord Stage channel.");
+                var recentMessages = await TryGetDiscordArray($"https://discord.com/api/v10/channels/{Uri.EscapeDataString(TrimToLimit(stageId, 64))}/messages?limit=1", token);
+                if (recentMessages == null)
+                {
+                    result.Status = "Bot can read the Stage channel, but cannot read Stage chat history. Grant View Channel and Read Message History permissions for chat sync.";
+                    return BadRequest(result);
+                }
+
+                result.Checks.Add("Bot can read the Stage chat history.");
+                result.Checks.Add("Outbound chat sync also requires Send Messages permission.");
                 var stageInstance = await TryGetDiscordObject($"https://discord.com/api/v10/stage-instances/{Uri.EscapeDataString(TrimToLimit(stageId, 64))}", token);
                 if (stageInstance == null)
                 {
@@ -493,11 +515,13 @@ namespace JellTogether.Plugin.Api
         }
 
         [HttpGet("Rooms/{roomId}")]
-        public ActionResult<JellTogetherRoom> GetRoom(string roomId)
+        public async Task<ActionResult<JellTogetherRoom>> GetRoom(string roomId)
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
             if (!CanView(room)) return Forbid();
+            await PullDiscordStageChat(roomId);
+            room = _roomManager.GetRoom(roomId) ?? room;
             return Ok(RoomForUser(room));
         }
 
@@ -560,6 +584,11 @@ namespace JellTogether.Plugin.Api
 
             var title = request.Title;
             if (string.IsNullOrWhiteSpace(title)) return BadRequest("Queue title is required.");
+
+            var validation = ValidateQueueMedia(request);
+            if (validation.Error != null) return validation.Error;
+            request = validation.Request;
+
             return _roomManager.AddToQueue(roomId, title, CurrentUserId, request.MediaId, request.LibraryId, request.MediaType, request.Overview)
                 ? Ok()
                 : Forbid();
@@ -625,6 +654,7 @@ namespace JellTogether.Plugin.Api
             var item = room.Queue.FirstOrDefault(queueItem => queueItem.Id == itemId);
             if (item == null) return NotFound();
             if (!Guid.TryParse(item.MediaId, out var mediaId)) return BadRequest("Queue item is not linked to a playable Jellyfin item.");
+            if (!IsMediaItemAllowed(mediaId, item.LibraryId)) return Forbid();
 
             var availableTargets = PlaybackTargetsForRoom(room);
             var targets = availableTargets
@@ -651,19 +681,22 @@ namespace JellTogether.Plugin.Api
 
             var controllingSessionId = ControllerSessionId();
             var controllingUserId = ControllerUserGuid();
-            var playRequest = new PlayRequest
-            {
-                ItemIds = new[] { mediaId },
-                PlayCommand = PlayCommand.PlayNow,
-                ControllingUserId = controllingUserId
-            };
-
             var attempts = new List<PlaybackStartAttempt>();
             foreach (var target in targets)
             {
+                var targetUserId = Guid.TryParse(target.UserId, out var parsedTargetUserId)
+                    ? parsedTargetUserId
+                    : Guid.Empty;
+                var playRequest = new PlayRequest
+                {
+                    ItemIds = new[] { mediaId },
+                    PlayCommand = PlayCommand.PlayNow,
+                    ControllingUserId = controllingUserId == Guid.Empty ? targetUserId : controllingUserId
+                };
                 var attempt = new PlaybackStartAttempt
                 {
                     SessionId = target.SessionId,
+                    ControllerSessionId = string.IsNullOrWhiteSpace(controllingSessionId) ? target.SessionId : controllingSessionId,
                     UserName = target.UserName,
                     Client = target.Client,
                     DeviceName = target.DeviceName
@@ -671,7 +704,7 @@ namespace JellTogether.Plugin.Api
 
                 try
                 {
-                    await _sessionManager.SendPlayCommand(controllingSessionId, target.SessionId, playRequest, cancellationToken).ConfigureAwait(false);
+                    await _sessionManager.SendPlayCommand(attempt.ControllerSessionId, target.SessionId, playRequest, cancellationToken).ConfigureAwait(false);
                     attempt.Success = true;
                     attempt.Status = "Command sent";
                 }
@@ -697,7 +730,7 @@ namespace JellTogether.Plugin.Api
                 EligibleCount = targets.Count,
                 StartedCount = targets.Count - failed.Count,
                 FailedSessionIds = failed,
-                ControllingSessionId = controllingSessionId,
+                ControllingSessionId = string.IsNullOrWhiteSpace(controllingSessionId) ? attempts.FirstOrDefault()?.ControllerSessionId ?? string.Empty : controllingSessionId,
                 ControllingUserId = controllingUserId.ToString(),
                 Attempts = attempts,
                 AvailableTargets = availableTargets
@@ -764,13 +797,13 @@ namespace JellTogether.Plugin.Api
             if (room == null) return NotFound();
 
             var isAdmin = CanManage(room);
-            
+            if (!isAdmin && !room.Participants.Contains(CurrentUserId)) return Forbid();
             if (!isAdmin && !room.AllowParticipantInvites) return Forbid();
 
             var perms = new ParticipantPermissions
             {
                 CanChat = request.CanChat,
-                CanControlPlayback = request.CanControl,
+                CanControlPlayback = isAdmin && request.CanControl,
                 CanAddToQueue = request.CanAddToQueue
             };
             var invite = _roomManager.CreateInvite(roomId, CurrentUserId, perms, request.HoursValid, request.MaxUses);
@@ -839,11 +872,13 @@ namespace JellTogether.Plugin.Api
         }
 
         [HttpGet("Rooms/{roomId}/Updates")]
-        public ActionResult<JellTogetherRoom> GetRoomUpdates(string roomId, [FromQuery] DateTime since)
+        public async Task<ActionResult<JellTogetherRoom>> GetRoomUpdates(string roomId, [FromQuery] DateTime since)
         {
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
             if (!CanView(room)) return Forbid();
+            await PullDiscordStageChat(roomId);
+            room = _roomManager.GetRoom(roomId) ?? room;
             
             if (room.LastUpdated <= since)
             {
@@ -1068,6 +1103,13 @@ namespace JellTogether.Plugin.Api
             };
 
             if (!_roomManager.AddMessage(roomId, message)) return Forbid();
+            var config = Plugin.Instance?.Configuration;
+            _ = _roomManager.SyncMessageToDiscordStage(
+                roomId,
+                message,
+                EffectiveDiscordBotToken(config),
+                config?.DiscordStageId,
+                config?.EnableDiscordStageChatSync ?? true);
             return Ok();
         }
 
@@ -1107,6 +1149,11 @@ namespace JellTogether.Plugin.Api
                 title,
                 EffectiveDiscordBotToken(config),
                 config?.DiscordStageId);
+            if (updated && Plugin.Instance != null && config != null)
+            {
+                config.ActiveDiscordStageRoomId = roomId;
+                Plugin.Instance.SaveConfiguration(config);
+            }
             return updated ? Ok() : BadRequest("Discord Stage is not configured in global settings.");
         }
 
@@ -1186,6 +1233,22 @@ namespace JellTogether.Plugin.Api
             return !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("JELLTOGETHER_DISCORD_BOT_TOKEN"));
         }
 
+        private async Task PullDiscordStageChat(string roomId)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (!string.IsNullOrWhiteSpace(config?.DiscordStageId) &&
+                !string.Equals(config.ActiveDiscordStageRoomId, roomId, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            await _roomManager.PullDiscordStageMessages(
+                roomId,
+                EffectiveDiscordBotToken(config),
+                config?.DiscordStageId,
+                config?.EnableDiscordStageChatSync ?? true);
+        }
+
         private JellTogetherRoom RoomForUser(JellTogetherRoom room)
         {
             room.DiscordBotToken = null;
@@ -1222,9 +1285,12 @@ namespace JellTogether.Plugin.Api
         private List<PlaybackTargetDto> PlaybackTargetsForRoom(JellTogetherRoom room)
         {
             return _sessionManager.Sessions
-                .Where(session => SessionBelongsToRoomParticipant(session, room))
-                .Select(session =>
+                .Select(session => new { Session = session, Match = RoomParticipantSessionMatch(session, room) })
+                .Where(candidate => candidate.Match != null)
+                .Select(candidate =>
                 {
+                    var session = candidate.Session;
+                    var match = candidate.Match!;
                     var isAndroidTv = IsAndroidTvSession(session);
                     var allowAndroidTv = Plugin.Instance?.Configuration.AllowAndroidTvPlaybackTargets ?? true;
                     var canStartPlayback = CanStartPlayback(session, isAndroidTv, allowAndroidTv);
@@ -1233,6 +1299,8 @@ namespace JellTogether.Plugin.Api
                         SessionId = session.Id,
                         UserId = session.UserId.ToString("D"),
                         UserName = session.UserName,
+                        MatchedParticipantId = match.ParticipantId,
+                        MatchReason = match.Reason,
                         Client = session.Client,
                         DeviceName = session.DeviceName,
                         IsActive = session.IsActive,
@@ -1250,6 +1318,12 @@ namespace JellTogether.Plugin.Api
                 .ThenBy(target => target.UserName)
                 .ThenBy(target => target.DeviceName)
                 .ToList();
+        }
+
+        private class SessionParticipantMatch
+        {
+            public string ParticipantId { get; set; } = string.Empty;
+            public string Reason { get; set; } = string.Empty;
         }
 
         private static bool CanStartPlayback(SessionInfo session, bool isAndroidTv, bool allowAndroidTv)
@@ -1286,9 +1360,40 @@ namespace JellTogether.Plugin.Api
                 text.Contains("Shield Android TV", StringComparison.OrdinalIgnoreCase);
         }
 
-        private bool SessionBelongsToRoomParticipant(SessionInfo session, JellTogetherRoom room)
+        private static SessionParticipantMatch? RoomParticipantSessionMatch(SessionInfo session, JellTogetherRoom room)
         {
-            return room.Participants.Any(participant => SessionMatchesUser(session, participant));
+            foreach (var participant in room.Participants)
+            {
+                if (SessionMatchesUser(session, participant))
+                {
+                    return new SessionParticipantMatch
+                    {
+                        ParticipantId = participant,
+                        Reason = "Matched room participant"
+                    };
+                }
+
+                if (room.ParticipantProfiles.TryGetValue(participant, out var profile))
+                {
+                    var profileCandidates = new[]
+                    {
+                        profile.UserId,
+                        profile.DisplayName,
+                        profile.MediaUserId
+                    };
+
+                    if (profileCandidates.Any(candidate => SessionMatchesUser(session, candidate)))
+                    {
+                        return new SessionParticipantMatch
+                        {
+                            ParticipantId = participant,
+                            Reason = "Matched participant profile"
+                        };
+                    }
+                }
+            }
+
+            return null;
         }
 
         private bool SessionMatchesCurrentUser(SessionInfo session)
@@ -1315,6 +1420,119 @@ namespace JellTogether.Plugin.Api
             if (session != null) return session.UserId;
             if (Guid.TryParse(CurrentUserId, out var userId)) return userId;
             return Guid.Empty;
+        }
+
+        private (QueueItemRequest Request, ActionResult? Error) ValidateQueueMedia(QueueItemRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.MediaId)) return (request, null);
+            if (!Guid.TryParse(request.MediaId, out var mediaId))
+            {
+                return (request, BadRequest("Queue media id must be a valid Jellyfin item id."));
+            }
+
+            var item = SafeGetLibraryItem(mediaId);
+            if (item == null) return (request, NotFound("Queue media item was not found."));
+
+            var allowedLibraryIds = ConfiguredLibraryIds();
+            var itemLibraryIds = LibraryIdsForItem(item);
+            if (allowedLibraryIds.Count > 0 && !itemLibraryIds.Overlaps(allowedLibraryIds))
+            {
+                return (request, Forbid());
+            }
+
+            if (!string.IsNullOrWhiteSpace(request.LibraryId) && itemLibraryIds.Count > 0 && !itemLibraryIds.Contains(request.LibraryId))
+            {
+                return (request, BadRequest("Queue media item does not belong to the requested library."));
+            }
+
+            if (string.IsNullOrWhiteSpace(request.LibraryId) && itemLibraryIds.Count > 0)
+            {
+                request.LibraryId = itemLibraryIds.First();
+            }
+
+            return (request, null);
+        }
+
+        private bool IsMediaItemAllowed(Guid mediaId, string libraryId)
+        {
+            var item = SafeGetLibraryItem(mediaId);
+            if (item == null) return false;
+
+            var allowedLibraryIds = ConfiguredLibraryIds();
+            if (allowedLibraryIds.Count == 0) return true;
+
+            var itemLibraryIds = LibraryIdsForItem(item);
+            if (!string.IsNullOrWhiteSpace(libraryId) && !itemLibraryIds.Contains(libraryId)) return false;
+            return itemLibraryIds.Overlaps(allowedLibraryIds);
+        }
+
+        private BaseItem? SafeGetLibraryItem(Guid mediaId)
+        {
+            try
+            {
+                return _libraryManager.GetItemById(mediaId);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private HashSet<string> ConfiguredLibraryIds()
+        {
+            return (Plugin.Instance?.Configuration.EnabledLibraryIds ?? new List<string>())
+                .Where(id => !string.IsNullOrWhiteSpace(id))
+                .Select(id => id.Trim())
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private HashSet<string> LibraryIdsForItem(BaseItem item)
+        {
+            var ids = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var itemPath = item.Path;
+            if (string.IsNullOrWhiteSpace(itemPath))
+            {
+                itemPath = item.ContainingFolderPath;
+            }
+
+            foreach (var folder in _libraryManager.GetVirtualFolders())
+            {
+                if (string.IsNullOrWhiteSpace(folder.ItemId)) continue;
+                if (Guid.TryParse(folder.ItemId, out var folderGuid) && folderGuid == item.Id)
+                {
+                    ids.Add(folder.ItemId);
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(itemPath) || folder.Locations == null) continue;
+                if (folder.Locations.Any(location => PathContainsItem(location, itemPath)))
+                {
+                    ids.Add(folder.ItemId);
+                }
+            }
+
+            return ids;
+        }
+
+        private static bool PathContainsItem(string? libraryPath, string itemPath)
+        {
+            if (string.IsNullOrWhiteSpace(libraryPath) || string.IsNullOrWhiteSpace(itemPath)) return false;
+            try
+            {
+                var normalizedLibraryPath = Path.GetFullPath(libraryPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var normalizedItemPath = Path.GetFullPath(itemPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                return normalizedItemPath.Equals(normalizedLibraryPath, StringComparison.OrdinalIgnoreCase) ||
+                    normalizedItemPath.StartsWith(normalizedLibraryPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ||
+                    normalizedItemPath.StartsWith(normalizedLibraryPath + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+            }
+            catch (ArgumentException)
+            {
+                return false;
+            }
+            catch (NotSupportedException)
+            {
+                return false;
+            }
         }
 
         private static QueueItemRequest ParseQueueItemRequest(JsonElement payload)
@@ -1431,6 +1649,23 @@ namespace JellTogether.Plugin.Api
             return document.RootElement.ValueKind == JsonValueKind.Object ? document.RootElement.Clone() : null;
         }
 
+        private static async Task<List<JsonElement>?> TryGetDiscordArray(string url, string botToken)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            request.Headers.Add("Authorization", $"Bot {TrimToLimit(botToken, 256)}");
+
+            using var response = await DiscordHttpClient.SendAsync(request);
+            if (!response.IsSuccessStatusCode) return null;
+
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            using var document = await JsonDocument.ParseAsync(stream);
+            if (document.RootElement.ValueKind != JsonValueKind.Array) return null;
+
+            return document.RootElement.EnumerateArray()
+                .Select(element => element.Clone())
+                .ToList();
+        }
+
         private static async Task<string> DiscordGuildName(string guildId, string botToken)
         {
             if (string.IsNullOrWhiteSpace(guildId)) return string.Empty;
@@ -1491,6 +1726,10 @@ namespace JellTogether.Plugin.Api
             var basePath = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
             var resourceBase = $"{basePath}/web/configurationpage?name=";
             html = html.Replace("configurationpage?name=", resourceBase, StringComparison.Ordinal);
+
+            Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; connect-src 'self' http: https: ws: wss:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'";
+            Response.Headers["Referrer-Policy"] = "no-referrer";
+            Response.Headers["X-Content-Type-Options"] = "nosniff";
 
             return Content(html, "text/html");
         }
@@ -1557,7 +1796,12 @@ namespace JellTogether.Plugin.Api
             var scheme = Request.Scheme;
             if (Request.Headers.TryGetValue("X-Forwarded-Proto", out var proto) && !string.IsNullOrEmpty(proto))
             {
-                scheme = proto.ToString();
+                var forwardedScheme = proto.ToString().Split(',')[0].Trim();
+                if (forwardedScheme.Equals("http", StringComparison.OrdinalIgnoreCase) ||
+                    forwardedScheme.Equals("https", StringComparison.OrdinalIgnoreCase))
+                {
+                    scheme = forwardedScheme;
+                }
             }
             var basePath = Request.PathBase.HasValue ? Request.PathBase.Value : string.Empty;
             return NormalizeBaseUrl($"{scheme}://{Request.Host}{basePath}");

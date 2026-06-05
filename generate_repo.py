@@ -3,6 +3,7 @@ import json
 import hashlib
 import zipfile
 import subprocess
+import shlex
 from datetime import datetime, timezone
 
 # --- CONFIGURATION ---
@@ -20,7 +21,23 @@ ZIP_NAME = f"jelltogether_{VERSION}.zip"
 ZIP_PATH = os.path.join(BASE_DIR, ZIP_NAME)
 REPO_JSON_PATH = os.path.join(BASE_DIR, "repository.json")
 MANIFEST_JSON_PATH = os.path.join(BASE_DIR, "manifest.json")
-CHANGELOG = """Republish Discord Stage settings and playback diagnostics as a fresh Jellyfin patch release.
+CHANGELOG = """Full-stack security and stability hardening.
+
+- Moved standalone companion Jellyfin access tokens from persistent local storage into server-scoped session storage and removed broad localStorage token discovery.
+- Replaced dynamic HTML injection with safe DOM construction in companion status, diagnostics, and troubleshooting UI.
+- Changed immersive headset support to a safe theater-mode fallback until a full WebXR render layer is available.
+- Added atomic room persistence with backup recovery so corrupted room storage no longer clears all rooms.
+- Added server-side Jellyfin media and library validation before queueing or starting playback.
+- Tightened participant-created invites so only room participants can create them and non-host invites cannot grant playback control.
+- Scoped Discord Stage chat sync to the active synced party room and added bounded Discord HTTP timeouts.
+- Added standalone companion security headers and stricter forwarded-proto handling.
+- Removed shell execution from the release helper.
+- Bumped the package version so Jellyfin refreshes the repository entry, release asset URL, and checksum."""
+
+HISTORICAL_RELEASES = [
+    {
+        "version": "1.3.4.0",
+        "changelog": """Republish Discord Stage settings and playback diagnostics as a fresh Jellyfin patch release.
 
 - Moved Discord Stage bot configuration out of individual watch party rooms and into the administrator-only global settings page.
 - Added server-wide Discord Stage channel ID and bot token settings with saved-token status and a clear-token option.
@@ -30,10 +47,14 @@ CHANGELOG = """Republish Discord Stage settings and playback diagnostics as a fr
 - Fixed detected Stage channel display so server and channel names render reliably from Discord API responses.
 - Fixed Discord connection tests and topic sync to use Discord Stage Instance endpoints for live Stage topics.
 - Made the Discord Stage connection test non-mutating so it no longer fails when the bot can read a Stage channel but cannot edit the live Stage topic.
+- Added optional Discord Stage chat sync between the active Stage channel chat and active JellTogether party rooms.
+- Improved Jellyfin playback session matching and controller fallbacks for standalone companion sessions.
+- Added WebXR-aware immersive mode handling with secure-context detection, XR session cleanup, and headset-friendly fallback layout.
 - Added playback start diagnostics to trace Jellyfin target eligibility and command failures.
-- Bumped the package version so Jellyfin refreshes the repository entry, release asset URL, and checksum."""
-
-HISTORICAL_RELEASES = [
+- Bumped the package version so Jellyfin refreshes the repository entry, release asset URL, and checksum.""",
+        "timestamp": "2026-06-05T22:58:35Z",
+        "checksum": "23CEA06BBD45D6323A4F6B7D2D936E21"
+    },
     {
         "version": "1.3.0.0",
         "changelog": """Establish compile-time single source of truth versioning, upgrade server indicators, and support playback modal back navigation.
@@ -427,7 +448,7 @@ def compact_release_history(versions):
 
 def run_command(cmd):
     print(f"Running: {cmd}")
-    subprocess.run(cmd, shell=True, check=True)
+    subprocess.run(shlex.split(cmd), check=True)
 
 def calculate_md5(file_path):
     md5_hash = hashlib.md5()

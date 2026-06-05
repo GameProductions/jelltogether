@@ -1262,6 +1262,7 @@ h1 {
     height: auto;
     min-height: 100vh;
     overflow-y: auto;
+    font-size: 1rem;
 }
 
 .settings-shell {
@@ -1269,7 +1270,7 @@ h1 {
     margin: 0 auto;
     padding: 32px 0 56px;
     display: grid;
-    gap: 18px;
+    gap: 22px;
 }
 
 .settings-header,
@@ -1281,20 +1282,31 @@ h1 {
 }
 
 .settings-section {
-    padding: 22px;
+    padding: 26px;
     display: grid;
-    gap: 14px;
+    gap: 18px;
     border: 1px solid var(--glass-border);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.055);
     box-shadow: var(--shadow-card);
 }
 
+.settings-page .section-label,
+.settings-page .field-label {
+    font-size: 0.86rem;
+    letter-spacing: 0.055em;
+}
+
+.settings-page h1 {
+    font-size: clamp(2rem, 3.2vw, 3.25rem);
+    line-height: 1.02;
+}
+
 .settings-section p {
     margin-top: 6px;
     color: var(--text-muted);
-    font-size: 0.9rem;
-    line-height: 1.45;
+    font-size: 1rem;
+    line-height: 1.62;
 }
 
 .settings-disclosure {
@@ -1305,8 +1317,9 @@ h1 {
 }
 
 .settings-disclosure summary {
-    padding: 13px 14px;
+    padding: 15px 16px;
     color: var(--text-main);
+    font-size: 1rem;
     font-weight: 800;
     cursor: pointer;
     list-style-position: inside;
@@ -1319,26 +1332,26 @@ h1 {
 .requirements-list,
 .setup-steps {
     display: grid;
-    gap: 8px;
-    padding: 0 14px 14px;
+    gap: 11px;
+    padding: 0 16px 16px;
     color: var(--text-muted);
-    font-size: 0.84rem;
-    line-height: 1.45;
+    font-size: 0.98rem;
+    line-height: 1.6;
 }
 
 .requirements-list span,
 .setup-steps span {
     display: grid;
-    grid-template-columns: 18px minmax(0, 1fr);
-    gap: 8px;
+    grid-template-columns: 22px minmax(0, 1fr);
+    gap: 10px;
 }
 
 .requirements-list span::before,
 .setup-steps span::before {
     content: "";
-    width: 5px;
-    height: 5px;
-    margin-top: 8px;
+    width: 7px;
+    height: 7px;
+    margin-top: 9px;
     border-radius: 50%;
     background: var(--primary);
     box-shadow: 0 0 10px var(--primary-glow);
@@ -1356,20 +1369,20 @@ h1 {
     content: counter(setup-step);
     display: grid;
     place-items: center;
-    width: 18px;
-    height: 18px;
-    margin-top: 1px;
+    width: 22px;
+    height: 22px;
+    margin-top: 2px;
     border-radius: 50%;
     background: rgba(180, 140, 255, 0.22);
     color: var(--text-main);
-    font-size: 0.68rem;
+    font-size: 0.78rem;
     font-weight: 900;
     box-shadow: none;
 }
 
 .compact-disclosure summary {
-    padding: 10px 12px;
-    font-size: 0.82rem;
+    padding: 12px 14px;
+    font-size: 0.95rem;
 }
 
 .manual-stage-entry {
@@ -1384,13 +1397,15 @@ h1 {
 
 .discord-test-result {
     display: grid;
-    gap: 5px;
+    gap: 8px;
     max-width: 720px;
-    padding: 12px;
+    padding: 14px;
     border: 1px solid var(--glass-border);
     border-radius: 8px;
     background: rgba(7, 10, 24, 0.48);
     overflow-wrap: anywhere;
+    font-size: 0.98rem;
+    line-height: 1.55;
 }
 
 .discord-test-result strong {
@@ -1414,13 +1429,14 @@ h1 {
 
 .stage-channel-option {
     display: grid;
-    gap: 3px;
+    gap: 5px;
     width: 100%;
-    padding: 12px;
+    padding: 14px;
     border: 1px solid var(--glass-border);
     border-radius: 8px;
     background: rgba(7, 10, 24, 0.48);
     color: var(--text-main);
+    font-size: 1rem;
     text-align: left;
     cursor: pointer;
 }
@@ -1433,7 +1449,7 @@ h1 {
 
 .stage-channel-option em {
     color: var(--text-dim);
-    font-size: 0.76rem;
+    font-size: 0.9rem;
     font-style: normal;
     overflow-wrap: anywhere;
 }
@@ -1450,7 +1466,7 @@ h1 {
     border-radius: 8px;
     background: rgba(7, 10, 24, 0.48);
     color: var(--text-dim);
-    font-size: 0.78rem;
+    font-size: 0.92rem;
     overflow-wrap: anywhere;
 }
 
@@ -1484,28 +1500,29 @@ h1 {
 .diagnostic-row em {
     grid-column: 1 / -1;
     color: var(--text-dim);
-    font-size: 0.76rem;
+    font-size: 0.9rem;
     font-style: normal;
     overflow-wrap: anywhere;
 }
 
 .library-list {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 12px;
 }
 
 .library-option {
-    min-height: 78px;
+    min-height: 92px;
     display: grid;
     grid-template-columns: auto 54px minmax(0, 1fr);
     align-items: center;
     gap: 12px;
-    padding: 12px;
+    padding: 14px;
     border: 1px solid var(--glass-border);
     border-radius: 8px;
     background: rgba(7, 10, 24, 0.48);
     color: var(--text-main);
+    font-size: 1rem;
 }
 
 .library-thumb {
@@ -1542,8 +1559,8 @@ h1 {
 
 .library-option input,
 .settings-option-card input[type="checkbox"] {
-    width: 17px;
-    height: 17px;
+    width: 20px;
+    height: 20px;
     accent-color: var(--primary);
 }
 
@@ -1558,29 +1575,37 @@ h1 {
 
 .library-option em,
 .settings-option-card em {
-    margin-top: 3px;
+    margin-top: 5px;
     color: var(--text-dim);
-    font-size: 0.76rem;
+    font-size: 0.92rem;
+    line-height: 1.5;
     font-style: normal;
+}
+
+.library-option strong,
+.settings-option-card strong {
+    font-size: 1.02rem;
+    line-height: 1.35;
 }
 
 .settings-option-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 12px;
 }
 
 .settings-option-card {
-    min-height: 84px;
+    min-height: 98px;
     display: grid;
     grid-template-columns: auto minmax(0, 1fr);
     align-items: start;
-    gap: 12px;
-    padding: 14px;
+    gap: 14px;
+    padding: 16px;
     border: 1px solid var(--glass-border);
     border-radius: 8px;
     color: var(--text-main);
     background: rgba(7, 10, 24, 0.48);
+    font-size: 1rem;
 }
 
 .settings-option-card.numeric {
@@ -1594,13 +1619,13 @@ h1 {
 
 .settings-option-card.compact-option {
     min-height: 0;
-    max-width: 420px;
+    max-width: 560px;
 }
 
 .settings-note {
     color: var(--text-dim);
-    font-size: 0.78rem;
-    line-height: 1.45;
+    font-size: 0.96rem;
+    line-height: 1.6;
 }
 
 .media-search-results {
@@ -1871,6 +1896,19 @@ h1 {
     font-size: 0.72rem;
     font-weight: 800;
     opacity: 0.76;
+}
+
+.message-source {
+    display: inline-flex;
+    width: fit-content;
+    margin: 0 0 6px;
+    padding: 2px 7px;
+    border-radius: 999px;
+    color: rgba(255, 255, 255, 0.88);
+    background: rgba(88, 101, 242, 0.25);
+    border: 1px solid rgba(88, 101, 242, 0.38);
+    font-size: 0.68rem;
+    font-weight: 800;
 }
 
 .message-reply-context {
@@ -2416,6 +2454,7 @@ h1 {
     --bg-dark: #000;
     --surface: rgba(0, 0, 0, 0.64);
     --glass: rgba(255, 255, 255, 0.035);
+    background: #000;
 }
 
 .theme-vr .vr-stars {
@@ -2428,18 +2467,64 @@ h1 {
 }
 
 .theme-vr .player-placeholder {
-    min-height: 80vh;
+    min-height: min(82vh, 780px);
     border-color: rgba(94, 234, 212, 0.28);
+    box-shadow: 0 0 0 1px rgba(94, 234, 212, 0.16), 0 30px 100px rgba(0, 0, 0, 0.58);
 }
 
 .theme-vr .sidebar {
     position: fixed;
-    right: 20px;
+    right: max(20px, env(safe-area-inset-right));
     top: 50%;
-    width: 320px;
-    height: 70vh;
+    width: min(390px, 34vw);
+    min-width: 320px;
+    height: min(76vh, 760px);
     z-index: 100;
     transform: translateY(-50%);
+    border-left: 1px solid rgba(94, 234, 212, 0.18);
+    background: rgba(5, 8, 18, 0.86);
+}
+
+.theme-vr .main-content {
+    padding-right: min(420px, 36vw);
+}
+
+.theme-vr .room-heading,
+.theme-vr .content-section,
+.theme-vr .room-toolbar {
+    max-width: 1180px;
+}
+
+.theme-vr .primary-command,
+.theme-vr .secondary-command,
+.theme-vr .ghost-command,
+.theme-vr .pill-command,
+.theme-vr .danger-command,
+.theme-vr .micro-command,
+.theme-vr .state-command {
+    min-height: 52px;
+    font-size: 1rem;
+}
+
+.theme-vr .chat-input,
+.theme-vr .glass-input {
+    min-height: 54px;
+    font-size: 1rem;
+}
+
+.theme-vr .message,
+.theme-vr .queue-card,
+.theme-vr .theory-card,
+.theme-vr .participant-card {
+    font-size: 1rem;
+}
+
+.theme-webxr .app-container {
+    background-size: 96px 96px;
+}
+
+.theme-xr-fallback .player-placeholder {
+    transform: translateZ(0);
 }
 
 .star {
