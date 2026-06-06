@@ -1027,6 +1027,72 @@ h1 {
     background: rgba(255, 255, 255, 0.04);
 }
 
+.playback-managed-summary {
+    display: grid;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid rgba(94, 234, 212, 0.16);
+    border-radius: 8px;
+    background: rgba(94, 234, 212, 0.04);
+}
+
+.playback-managed-label {
+    display: grid;
+    gap: 4px;
+}
+
+.playback-managed-label strong {
+    font-size: 0.82rem;
+}
+
+.playback-managed-label span,
+.playback-managed-summary .room-note {
+    font-size: 0.74rem;
+}
+
+.playback-managed-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.playback-managed-chip {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
+    padding: 8px 10px;
+    border: 1px solid rgba(94, 234, 212, 0.18);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.045);
+    color: var(--text-main);
+    text-align: left;
+}
+
+.playback-managed-chip strong,
+.playback-managed-chip span,
+.playback-managed-chip em {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.playback-managed-chip strong {
+    font-size: 0.76rem;
+}
+
+.playback-managed-chip span,
+.playback-managed-chip em {
+    font-size: 0.66rem;
+    color: var(--text-muted);
+}
+
+.playback-managed-chip em {
+    color: var(--primary);
+    font-style: normal;
+}
+
 .theater-preview-screen {
     position: relative;
     width: 100%;
@@ -1243,6 +1309,25 @@ h1 {
     gap: 10px;
 }
 
+.target-actions-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.target-managed-chip {
+    padding: 4px 8px;
+    border: 1px solid rgba(94, 234, 212, 0.30);
+    border-radius: 999px;
+    background: rgba(94, 234, 212, 0.08);
+    color: var(--primary);
+    font-size: 0.64rem;
+    font-weight: 800;
+    text-transform: uppercase;
+}
+
 .target-summary {
     grid-template-columns: minmax(0, 1fr) auto;
 }
@@ -1287,6 +1372,27 @@ h1 {
     align-items: center;
     flex-wrap: wrap;
     gap: 8px;
+}
+
+.playback-target.target-summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.playback-target.target-summary .target-info-wrapper {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.playback-target.target-summary .target-info-btn {
+    margin-right: 0;
+}
+
+.playback-target.target-summary .micro-command,
+.playback-target.target-summary .secondary-command.compact {
+    min-width: 70px;
 }
 
 .target-badge {

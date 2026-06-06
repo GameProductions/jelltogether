@@ -7,7 +7,7 @@ class JellTogetherApp {
         this.enabledLibraryIds = [];
         this.allowQueueVotingByDefault = true;
         this.allowParticipantQueueAdds = true;
-        this.pluginVersion = "1.4.3.5";
+        this.pluginVersion = "1.4.3.6";
         this.changelog = [];
         this.currentRoom = null;
         this.currentUser = "Unknown";
@@ -2159,6 +2159,10 @@ class JellTogetherApp {
         previewCard.appendChild(previewScreen);
         modal.appendChild(previewCard);
 
+        const managedSummary = document.createElement('div');
+        managedSummary.className = 'playback-managed-summary';
+        modal.appendChild(managedSummary);
+
         const targetList = document.createElement('div');
         targetList.className = 'playback-target-list';
         targetList.appendChild(this.textEl('div', 'Finding active Jellyfin sessions...', 'loading'));
@@ -2178,6 +2182,7 @@ class JellTogetherApp {
             try {
                 const targets = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackTargets`);
                 this.updateTheaterPreview(previewVideo);
+                this.renderPlaybackManagedSummary(managedSummary, targets || []);
                 this.renderPlaybackTargetSummary(targetList, targets || []);
             } catch (e) {
                 console.error("Playback Target Summary Error:", e);
@@ -2223,6 +2228,10 @@ class JellTogetherApp {
         modal.appendChild(previewCard);
         this.updateTheaterPreview(previewVideo, item);
 
+        const managedSummary = document.createElement('div');
+        managedSummary.className = 'playback-managed-summary';
+        modal.appendChild(managedSummary);
+
         const targetList = document.createElement('div');
         targetList.className = 'playback-target-list';
         targetList.appendChild(this.textEl('div', 'Finding active Jellyfin sessions...', 'loading'));
@@ -2251,6 +2260,7 @@ class JellTogetherApp {
                 const targets = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackTargets`);
                 const previouslySelected = new Set(this.selectedPlaybackTargets(targetList));
                 this.updateTheaterPreview(previewVideo, item);
+                this.renderPlaybackManagedSummary(managedSummary, targets || []);
                 this.renderPlaybackTargets(targetList, targets || [], startButton, () => this.showStartWatchPartyModal(item));
                 
                 if (previouslySelected.size > 0) {
@@ -2267,6 +2277,38 @@ class JellTogetherApp {
 
         await refresh();
         this.targetsPollInterval = setInterval(refresh, 5000);
+    }
+
+    renderPlaybackManagedSummary(container, targets) {
+        this.clear(container);
+        const activeIds = new Set(this.currentRoom?.activePlaybackSessionIds || []);
+        const managedTargets = (targets || []).filter(target => activeIds.has(target.sessionId));
+        const label = document.createElement('div');
+        label.className = 'playback-managed-label';
+        label.appendChild(this.textEl('strong', 'Managed Playback Devices'));
+        label.appendChild(this.textEl('span', managedTargets.length ? `${managedTargets.length} device${managedTargets.length === 1 ? '' : 's'} active in this room` : 'No devices are currently being tracked for managed sync.'));
+        container.appendChild(label);
+
+        if (!managedTargets.length) {
+            container.appendChild(this.textEl('div', 'Add a device from the list below to keep it in the room’s playback roster.', 'room-note'));
+            return;
+        }
+
+        const chips = document.createElement('div');
+        chips.className = 'playback-managed-chips';
+        managedTargets.forEach(target => {
+            const chip = document.createElement('button');
+            chip.type = 'button';
+            chip.className = 'playback-managed-chip';
+            chip.appendChild(this.textEl('strong', target.userName || target.userId || 'Jellyfin user'));
+            chip.appendChild(this.textEl('span', target.deviceName || target.client || 'Managed device'));
+            chip.appendChild(this.textEl('em', 'Remove'));
+            chip.onclick = async () => {
+                await this.togglePlaybackDevice(target);
+            };
+            chips.appendChild(chip);
+        });
+        container.appendChild(chips);
     }
 
     renderPlaybackTargetSummary(container, targets) {
@@ -2291,7 +2333,7 @@ class JellTogetherApp {
             
             // Inline Action wrapper (info button + hover tooltip)
             const actionWrapper = document.createElement('div');
-            actionWrapper.className = 'target-info-wrapper';
+            actionWrapper.className = 'target-info-wrapper target-actions-group';
             
             const infoBtn = document.createElement('button');
             infoBtn.className = 'target-info-btn';
@@ -2332,6 +2374,10 @@ class JellTogetherApp {
             actionWrapper.appendChild(infoBtn);
             actionWrapper.appendChild(tooltip);
             actionWrapper.appendChild(this.renderPlaybackDeviceToggle(target));
+            if (this.currentRoom?.activePlaybackSessionIds?.includes(target.sessionId)) {
+                const activeChip = this.textEl('span', 'Managed', 'target-managed-chip');
+                actionWrapper.appendChild(activeChip);
+            }
             
             infoBtn.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -2382,7 +2428,7 @@ class JellTogetherApp {
 
             // Inline Action wrapper (info button + hover tooltip)
             const actionWrapper = document.createElement('div');
-            actionWrapper.className = 'target-info-wrapper';
+            actionWrapper.className = 'target-info-wrapper target-actions-group';
             
             const infoBtn = document.createElement('button');
             infoBtn.className = 'target-info-btn';
@@ -2440,29 +2486,34 @@ class JellTogetherApp {
         const activeIds = new Set(this.currentRoom?.activePlaybackSessionIds || []);
         const isManaged = activeIds.has(target.sessionId);
         const label = isManaged ? 'Remove' : 'Add';
-        const button = this.button(label, compact ? 'micro-command' : 'secondary-command compact', async () => {
-            try {
-                const method = isManaged ? 'DELETE' : 'POST';
-                const url = isManaged
-                    ? `/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackDevices/${encodeURIComponent(target.sessionId)}`
-                    : `/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackDevices`;
-                const options = isManaged
-                    ? { method }
-                    : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: target.sessionId }) };
-                const resp = await this.request(url, options);
-                if (!resp.ok) {
-                    const detail = await resp.text().catch(() => '');
-                    throw new Error(detail || `Playback device update failed with ${resp.status}`);
-                }
-                await this.refreshRoom();
-                this.showToast(isManaged ? 'Playback device removed.' : 'Playback device added.', 'success');
-            } catch (e) {
-                console.error('Playback device toggle failed:', e);
-                this.showToast(e?.message || 'Could not update playback device.', 'error');
-            }
-        });
+        const button = this.button(label, compact ? 'micro-command' : 'secondary-command compact', () => this.togglePlaybackDevice(target));
         button.title = isManaged ? 'Stop tracking this device for room sync' : 'Track this device for room sync';
         return button;
+    }
+
+    async togglePlaybackDevice(target) {
+        if (!this.currentRoom || !target?.sessionId) return;
+        const activeIds = new Set(this.currentRoom?.activePlaybackSessionIds || []);
+        const isManaged = activeIds.has(target.sessionId);
+        try {
+            const method = isManaged ? 'DELETE' : 'POST';
+            const url = isManaged
+                ? `/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackDevices/${encodeURIComponent(target.sessionId)}`
+                : `/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackDevices`;
+            const options = isManaged
+                ? { method }
+                : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: target.sessionId }) };
+            const resp = await this.request(url, options);
+            if (!resp.ok) {
+                const detail = await resp.text().catch(() => '');
+                throw new Error(detail || `Playback device update failed with ${resp.status}`);
+            }
+            await this.refreshRoom();
+            this.showToast(isManaged ? 'Playback device removed.' : 'Playback device added.', 'success');
+        } catch (e) {
+            console.error('Playback device toggle failed:', e);
+            this.showToast(e?.message || 'Could not update playback device.', 'error');
+        }
     }
 
     showTargetDetailsModal(target, backAction) {
