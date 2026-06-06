@@ -1034,6 +1034,9 @@ h1 {
     border: 1px solid rgba(94, 234, 212, 0.16);
     border-radius: 8px;
     background: rgba(94, 234, 212, 0.04);
+    max-height: min(32vh, 260px);
+    overflow-y: auto;
+    padding-right: 6px;
 }
 
 .playback-managed-label {
@@ -1307,6 +1310,9 @@ h1 {
 .playback-target-list {
     display: grid;
     gap: 10px;
+    max-height: min(50vh, 460px);
+    overflow-y: auto;
+    padding-right: 4px;
 }
 
 .target-actions-group {
@@ -2585,15 +2591,28 @@ h1 {
     padding: 24px;
     background: rgba(0, 0, 0, 0.72);
     backdrop-filter: blur(10px);
+    overflow: auto;
 }
 
 .app-modal {
     width: min(92vw, 480px);
+    max-height: min(86vh, 840px);
     padding: 26px;
     border: 1px solid var(--glass-border);
     border-radius: 8px;
     background: rgba(8, 12, 26, 0.96);
     box-shadow: var(--shadow-soft);
+    overflow: auto;
+}
+
+.media-detail-modal,
+.queue-picker-modal,
+.changelog-modal,
+.theater-control-modal,
+.device-details-modal,
+.seat-modal {
+    max-height: min(86vh, 840px);
+    overflow: auto;
 }
 
 .app-modal h3 {

@@ -34,6 +34,7 @@
                         <div class="hero-actions">
                             <button class="primary-command" onclick="app.createRoom()">Create Party</button>
                             <button class="secondary-command" onclick="app.copyCompanionLink()">Copy Companion Link</button>
+                            <button class="secondary-command" onclick="app.openHelpGuide()">Help Guide</button>
                             <button class="secondary-command" onclick="app.showChangelogModal()">What's New</button>
                         </div>
                     </div>
@@ -159,6 +160,7 @@
                         <button id="btn-room-management-dock" class="secondary-command compact" onclick="app.setRoomManagementMode('dock')">Dock</button>
                         <button id="btn-room-management-scroll" class="secondary-command compact" onclick="app.setRoomManagementMode('scroll')">Scroll</button>
                         <button id="btn-room-management-float" class="secondary-command compact" onclick="app.setRoomManagementMode('float')">Float</button>
+                        <button class="secondary-command compact" onclick="app.openHelpGuide()">Help Guide</button>
                     </div>
                     <div class="room-note">Edit the room name directly in the page title.</div>
                     <div class="room-note">Use Up Next to search allowed Jellyfin libraries and start playback on active sessions.</div>

@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Reflection;
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text;
 using System.Text.RegularExpressions;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Entities;
@@ -112,6 +113,14 @@ namespace JellTogether.Plugin.Api
         public List<string> TargetSessionIds { get; set; } = new();
     }
 
+    public class PlaybackStateRequest
+    {
+        public string Title { get; set; } = string.Empty;
+        public string MediaId { get; set; } = string.Empty;
+        public long PositionTicks { get; set; }
+        public bool Paused { get; set; }
+    }
+
     public class PlaybackTargetDto
     {
         public string SessionId { get; set; } = string.Empty;
@@ -203,6 +212,15 @@ namespace JellTogether.Plugin.Api
         public IActionResult OpenInvite(string code)
         {
             return Redirect(CompanionUrl(code));
+        }
+
+        [HttpGet("HelpGuide")]
+        [AllowAnonymous]
+        public IActionResult HelpGuide()
+        {
+            var markdown = ReadHelpGuideMarkdown();
+            if (string.IsNullOrWhiteSpace(markdown)) return NotFound();
+            return Content(RenderMarkdownDocument("JellTogether User Guide", markdown), "text/html; charset=utf-8");
         }
 
         [HttpGet("CurrentUser")]
@@ -744,6 +762,27 @@ namespace JellTogether.Plugin.Api
             var result = await SendPlaybackToTargets(room, item, targets, cancellationToken);
             result.AvailableTargets = availableTargets;
             return Ok(CanManage(room) ? result : RedactPlaybackDiagnostics(result));
+        }
+
+        [HttpPost("Rooms/{roomId}/Playback/State")]
+        public ActionResult SyncPlaybackState(string roomId, [FromBody] PlaybackStateRequest request)
+        {
+            if (request == null) return BadRequest("Playback state payload is required.");
+
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanControlPlayback(room)) return Forbid();
+            if (string.IsNullOrWhiteSpace(request.MediaId)) return BadRequest("Playback media id is required.");
+
+            var title = string.IsNullOrWhiteSpace(request.Title) ? room.NowPlayingTitle : request.Title;
+            _roomManager.SetRoomPlaybackState(
+                roomId,
+                title,
+                request.MediaId,
+                request.Paused ? null : DateTime.UtcNow.Subtract(TimeSpan.FromTicks(Math.Max(0, request.PositionTicks))),
+                Math.Max(0, request.PositionTicks),
+                request.Paused);
+            return Ok();
         }
 
         [HttpPost("Rooms/{roomId}/Playback/SyncFromSession")]
@@ -2211,6 +2250,116 @@ namespace JellTogether.Plugin.Api
             if (stream == null) return string.Empty;
             using var reader = new StreamReader(stream);
             return reader.ReadToEnd();
+        }
+
+        private static string ReadHelpGuideMarkdown()
+        {
+            try
+            {
+                var pluginDir = Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? AppContext.BaseDirectory;
+                var guidePath = Path.Combine(pluginDir, "help_guide.md");
+                if (System.IO.File.Exists(guidePath))
+                {
+                    return System.IO.File.ReadAllText(guidePath);
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                var repoPath = Path.Combine(Directory.GetCurrentDirectory(), "help_guide.md");
+                if (System.IO.File.Exists(repoPath))
+                {
+                    return System.IO.File.ReadAllText(repoPath);
+                }
+            }
+            catch
+            {
+            }
+
+            return string.Empty;
+        }
+
+        private static string RenderMarkdownDocument(string title, string markdown)
+        {
+            var html = new StringBuilder();
+            html.AppendLine("<!doctype html><html><head><meta charset=\"utf-8\">");
+            html.AppendLine($"<title>{System.Net.WebUtility.HtmlEncode(title)}</title>");
+            html.AppendLine("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">");
+            html.AppendLine("<style>");
+            html.AppendLine("body{margin:0;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#060814;color:#f8fbff;line-height:1.6;}");
+            html.AppendLine("main{max-width:900px;margin:0 auto;padding:32px 20px 56px;} h1,h2,h3{line-height:1.2;} h1{font-size:2rem;margin:0 0 18px;} h2{margin-top:28px;border-top:1px solid rgba(255,255,255,.08);padding-top:18px;} p,li{color:rgba(219,231,255,.92);} ul,ol{padding-left:24px;} code{background:rgba(255,255,255,.08);padding:1px 6px;border-radius:6px;} a{color:#5eead4;} .nav{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 18px;} .pill{display:inline-flex;padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);text-decoration:none;color:#f8fbff;font-weight:700;}");
+            html.AppendLine("</style></head><body><main>");
+            html.AppendLine("<div class=\"nav\"><a class=\"pill\" href=\"/jelltogether/Companion\">Open Companion</a><a class=\"pill\" href=\"/jelltogether\">Open Plugin Home</a></div>");
+            html.AppendLine(RenderMarkdownToHtml(markdown));
+            html.AppendLine("</main></body></html>");
+            return html.ToString();
+        }
+
+        private static string RenderMarkdownToHtml(string markdown)
+        {
+            var sb = new StringBuilder();
+            var inUl = false;
+            var inOl = false;
+
+            void CloseLists()
+            {
+                if (inUl) { sb.AppendLine("</ul>"); inUl = false; }
+                if (inOl) { sb.AppendLine("</ol>"); inOl = false; }
+            }
+
+            foreach (var rawLine in markdown.Split('\n'))
+            {
+                var line = rawLine.TrimEnd('\r');
+                if (string.IsNullOrWhiteSpace(line))
+                {
+                    CloseLists();
+                    continue;
+                }
+
+                if (line.StartsWith("# "))
+                {
+                    CloseLists();
+                    sb.AppendLine($"<h1>{System.Net.WebUtility.HtmlEncode(line[2..].Trim())}</h1>");
+                    continue;
+                }
+
+                if (line.StartsWith("## "))
+                {
+                    CloseLists();
+                    sb.AppendLine($"<h2>{System.Net.WebUtility.HtmlEncode(line[3..].Trim())}</h2>");
+                    continue;
+                }
+
+                if (line.StartsWith("### "))
+                {
+                    CloseLists();
+                    sb.AppendLine($"<h3>{System.Net.WebUtility.HtmlEncode(line[4..].Trim())}</h3>");
+                    continue;
+                }
+
+                if (line.StartsWith("- "))
+                {
+                    if (!inUl) { CloseLists(); sb.AppendLine("<ul>"); inUl = true; }
+                    sb.AppendLine($"<li>{System.Net.WebUtility.HtmlEncode(line[2..].Trim())}</li>");
+                    continue;
+                }
+
+                if (Regex.IsMatch(line, @"^\d+\.\s+"))
+                {
+                    if (!inOl) { CloseLists(); sb.AppendLine("<ol>"); inOl = true; }
+                    sb.AppendLine($"<li>{System.Net.WebUtility.HtmlEncode(Regex.Replace(line, @"^\d+\.\s+", string.Empty).Trim())}</li>");
+                    continue;
+                }
+
+                CloseLists();
+                sb.AppendLine($"<p>{System.Net.WebUtility.HtmlEncode(line)}</p>");
+            }
+
+            CloseLists();
+            return sb.ToString();
         }
 
         private static bool IsLocalOrPrivateHost(string host)

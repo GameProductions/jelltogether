@@ -32,6 +32,7 @@ class JellTogetherApp {
         this.xrLayer = null;
         this.theaterVideoItem = null;
         this.theaterVideoUrl = '';
+        this.playbackStateSyncTimer = null;
         this.lang = 'en';
         this.t = JELL_TOGETHER_I18N[this.lang];
         this.activeSidebarTab = 'chat';
@@ -118,6 +119,10 @@ class JellTogetherApp {
         const base = this.publicCompanionOrigin ||
             (this.publicJellyfinUrl ? `${this.normalizeBaseUrl(this.publicJellyfinUrl)}/jelltogether/Companion` : `${window.location.origin}/jelltogether/Companion`);
         return this.addInviteCode(base, code);
+    }
+
+    openHelpGuide() {
+        window.open(this.apiUrl('/jelltogether/HelpGuide'), '_blank', 'noopener,noreferrer');
     }
 
     addInviteCode(url, code = null) {
@@ -1601,7 +1606,7 @@ class JellTogetherApp {
             label.className = 'queue-picker-item';
             const input = document.createElement('input');
             input.type = 'checkbox';
-            input.checked = true;
+            input.checked = false;
             input.value = item.mediaId;
             label.appendChild(input);
             const text = document.createElement('span');
@@ -2103,6 +2108,7 @@ class JellTogetherApp {
             this.theaterVideoUrl = mediaSourceUrl;
             video.src = mediaSourceUrl;
             video.hidden = false;
+            this.bindTheaterVideoEvents(video);
             video.oncanplay = () => {
                 const currentSeconds = this.roomPlaybackSeconds();
                 if (Number.isFinite(currentSeconds) && currentSeconds > 0) {
@@ -2119,15 +2125,65 @@ class JellTogetherApp {
         }
     }
 
+    bindTheaterVideoEvents(video) {
+        if (!video || video.dataset.jelltogetherBound === 'true') return;
+        video.dataset.jelltogetherBound = 'true';
+        const schedule = () => this.schedulePlaybackStateSync(video);
+        video.addEventListener('play', schedule);
+        video.addEventListener('pause', schedule);
+        video.addEventListener('seeked', schedule);
+        video.addEventListener('ended', schedule);
+    }
+
+    schedulePlaybackStateSync(video) {
+        if (!this.currentRoom || !video || !this.currentRoom.nowPlayingMediaId) return;
+        if (this.playbackStateSyncTimer) clearTimeout(this.playbackStateSyncTimer);
+        this.playbackStateSyncTimer = setTimeout(() => this.syncPlaybackStateFromVideo(video), 250);
+    }
+
+    async syncPlaybackStateFromVideo(video) {
+        if (!this.currentRoom || !video || !this.currentRoom.nowPlayingMediaId) return;
+        const paused = video.paused === true || video.ended === true;
+        const positionTicks = Math.max(0, Math.round((video.currentTime || 0) * 10000000));
+        try {
+            const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Playback/State`, {
+                title: this.currentRoom.nowPlayingTitle || '',
+                mediaId: this.currentRoom.nowPlayingMediaId || '',
+                positionTicks,
+                paused
+            });
+            if (!resp.ok) {
+                const detail = await resp.text().catch(() => '');
+                throw new Error(detail || `Playback state sync failed with ${resp.status}`);
+            }
+            this.currentRoom.nowPlayingPositionTicks = positionTicks;
+            this.currentRoom.nowPlayingPaused = paused;
+            this.currentRoom.nowPlayingStartedAt = paused ? null : new Date(Date.now() - Math.max(0, video.currentTime || 0) * 1000).toISOString();
+            this.lastUpdate = this.currentRoom.lastUpdated || this.lastUpdate;
+            this.updateUIState();
+        } catch (e) {
+            console.error('Playback state sync failed:', e);
+        }
+    }
+
     stopTheaterVideo(video, screen = null) {
         if (video) {
             try { video.pause(); } catch (e) { /* ignore */ }
+            video.onplay = null;
+            video.onpause = null;
+            video.onseeked = null;
+            video.onended = null;
+            video.dataset.jelltogetherBound = 'false';
             video.removeAttribute('src');
             video.load?.();
             video.hidden = true;
         }
         this.theaterVideoItem = null;
         this.theaterVideoUrl = '';
+        if (this.playbackStateSyncTimer) {
+            clearTimeout(this.playbackStateSyncTimer);
+            this.playbackStateSyncTimer = null;
+        }
         if (screen) screen.classList.remove('is-playing');
     }
 
@@ -2440,7 +2496,7 @@ class JellTogetherApp {
             const input = document.createElement('input');
             input.type = 'checkbox';
             input.value = target.sessionId;
-            input.checked = isEligible;
+            input.checked = false;
             input.disabled = !isEligible;
             input.addEventListener('change', () => {
                 startButton.disabled = this.selectedPlaybackTargets(container).length === 0;
@@ -3867,6 +3923,8 @@ class JellTogetherApp {
             const item = document.createElement('div');
             item.className = 'participant-item';
             item.appendChild(this.textEl('span', userId, 'user-name'));
+            const canManagePermissions = this.canManage();
+            const canModerateParticipant = this.canManageParticipants();
 
             if (this.currentRoom.ownerId === userId) {
                 item.appendChild(this.textEl('span', 'Host', 'role-badge role-owner'));
@@ -3886,13 +3944,15 @@ class JellTogetherApp {
             if (perms.canManageParticipants === true) badges.appendChild(this.textEl('span', 'Moderator'));
             if (badges.childElementCount) item.appendChild(badges);
 
-            if (this.canManageParticipants() && userId !== this.currentUser && this.currentRoom.ownerId !== userId) {
+            if (canModerateParticipant && userId !== this.currentUser && this.currentRoom.ownerId !== userId) {
                 const actions = document.createElement('div');
                 actions.className = 'participant-actions';
-                actions.appendChild(this.button(perms.canChat === false ? 'Unmute' : 'Mute', 'micro-command', () => this.updateParticipantPermissions(userId, { canChat: perms.canChat === false })));
-                actions.appendChild(this.button(perms.canControlPlayback === false ? 'Allow Control' : 'No Control', 'micro-command', () => this.updateParticipantPermissions(userId, { canControlPlayback: perms.canControlPlayback === false })));
-                actions.appendChild(this.button(perms.canAddToQueue === false ? 'Allow Queue' : 'No Queue', 'micro-command', () => this.updateParticipantPermissions(userId, { canAddToQueue: perms.canAddToQueue === false })));
-                if (this.isOwner()) actions.appendChild(this.button(perms.canManageParticipants === true ? 'Revoke Mod' : 'Make Mod', 'micro-command', () => this.updateParticipantPermissions(userId, { canManageParticipants: perms.canManageParticipants !== true })));
+                if (canManagePermissions) {
+                    actions.appendChild(this.button(perms.canChat === false ? 'Unmute' : 'Mute', 'micro-command', () => this.updateParticipantPermissions(userId, { canChat: perms.canChat === false })));
+                    actions.appendChild(this.button(perms.canControlPlayback === false ? 'Allow Control' : 'No Control', 'micro-command', () => this.updateParticipantPermissions(userId, { canControlPlayback: perms.canControlPlayback === false })));
+                    actions.appendChild(this.button(perms.canAddToQueue === false ? 'Allow Queue' : 'No Queue', 'micro-command', () => this.updateParticipantPermissions(userId, { canAddToQueue: perms.canAddToQueue === false })));
+                    if (this.isOwner()) actions.appendChild(this.button(perms.canManageParticipants === true ? 'Revoke Mod' : 'Make Mod', 'micro-command', () => this.updateParticipantPermissions(userId, { canManageParticipants: perms.canManageParticipants !== true })));
+                }
                 actions.appendChild(this.button('Kick', 'micro-command', () => this.participantAction(userId, 'Kick')));
                 actions.appendChild(this.button('Ban', 'micro-command', () => this.participantAction(userId, 'Ban')));
                 item.appendChild(actions);
@@ -3947,11 +4007,14 @@ class JellTogetherApp {
         if (!this.currentRoom || !userId) return;
         try {
             const resp = await this.request(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Participants/${encodeURIComponent(userId)}/${action}`, { method: 'POST' });
-            if (!resp.ok) throw new Error(`${action} failed`);
+            if (!resp.ok) {
+                const detail = await resp.text().catch(() => '');
+                throw new Error(detail || `${action} failed with ${resp.status}`);
+            }
             await this.refreshRoom();
         } catch (e) {
             console.error(`${action} Error:`, e);
-            this.showToast('Participant action failed.', 'error');
+            this.showToast(e?.message || 'Participant action failed.', 'error');
         }
     }
 
@@ -3967,11 +4030,14 @@ class JellTogetherApp {
         };
         try {
             const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Participants/${encodeURIComponent(userId)}/Permissions`, payload);
-            if (!resp.ok) throw new Error('Permissions update failed');
+            if (!resp.ok) {
+                const detail = await resp.text().catch(() => '');
+                throw new Error(detail || `Permissions update failed with ${resp.status}`);
+            }
             await this.refreshRoom();
         } catch (e) {
             console.error('Permissions Error:', e);
-            this.showToast('Could not update participant permissions.', 'error');
+            this.showToast(e?.message || 'Could not update participant permissions.', 'error');
         }
     }
 
