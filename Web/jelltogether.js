@@ -7,7 +7,7 @@ class JellTogetherApp {
         this.enabledLibraryIds = [];
         this.allowQueueVotingByDefault = true;
         this.allowParticipantQueueAdds = true;
-        this.pluginVersion = "1.4.3.2";
+        this.pluginVersion = "1.4.3.4";
         this.changelog = [];
         this.currentRoom = null;
         this.currentUser = "Unknown";
@@ -40,6 +40,7 @@ class JellTogetherApp {
         this.queuePage = 1;
         this.queuePageSize = 10;
         this.mediaDetailsCache = new Map();
+        this.roomManagementMode = localStorage.getItem('jelltogether_room_management_mode') || 'dock';
 
         this._lastCinemaData = null;
         this._lastParticipantData = null;
@@ -1134,6 +1135,9 @@ class JellTogetherApp {
 
         const amAdmin = this.canManage();
         const amOwner = this.isOwner();
+        document.body.classList.toggle('room-management-docked', this.roomManagementMode === 'dock');
+        document.body.classList.toggle('room-management-scroll', this.roomManagementMode === 'scroll');
+        document.body.classList.toggle('room-management-floating', this.roomManagementMode === 'float');
 
         document.getElementById('sidebar-tabs').style.display = 'grid';
         document.getElementById('participant-section').style.display = 'block';
@@ -1144,6 +1148,7 @@ class JellTogetherApp {
 
         const roomManagement = document.getElementById('room-management');
         if (roomManagement) roomManagement.style.display = amAdmin ? 'grid' : 'none';
+        this.updateRoomManagementModeUI();
 
         const themeControls = document.getElementById('host-theme-controls');
         if (themeControls) themeControls.style.display = amAdmin ? 'grid' : 'none';
@@ -1326,6 +1331,24 @@ class JellTogetherApp {
             console.error('Media Search Error:', e);
             container.appendChild(this.textEl('div', 'Search failed.', 'loading'));
         }
+    }
+
+    setRoomManagementMode(mode) {
+        const allowed = new Set(['dock', 'scroll', 'float']);
+        this.roomManagementMode = allowed.has(mode) ? mode : 'dock';
+        localStorage.setItem('jelltogether_room_management_mode', this.roomManagementMode);
+        this.updateUIState();
+    }
+
+    updateRoomManagementModeUI() {
+        [
+            ['dock', 'btn-room-management-dock'],
+            ['scroll', 'btn-room-management-scroll'],
+            ['float', 'btn-room-management-float']
+        ].forEach(([mode, id]) => {
+            const button = document.getElementById(id);
+            if (button) button.classList.toggle('active', this.roomManagementMode === mode);
+        });
     }
 
     async searchLibrary(term, libraryId) {
@@ -3255,12 +3278,42 @@ class JellTogetherApp {
             const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/SyncStage`, { title: title.trim() });
             if (!resp.ok) {
                 const detail = await resp.text().catch(() => "");
-                throw new Error(detail || `Discord sync failed with ${resp.status}`);
+                const detailText = detail || `Discord sync failed with ${resp.status}`;
+                if (detailText.toLowerCase().includes('unknown stage instance')) {
+                    this.showToast('Discord Stage is not live yet. Start the Stage inside Discord first, then sync again.', 'error');
+                    return;
+                }
+                throw new Error(detailText);
             }
             this.showToast("Discord Stage synced.", 'success');
         } catch (e) {
             console.error("Discord Sync Error:", e);
+            if ((e?.message || '').toLowerCase().includes('unknown stage instance')) {
+                this.showToast('Discord Stage is not live yet. Start the Stage inside Discord first, then sync again.', 'error');
+                return;
+            }
             this.showToast(e?.message || "Failed to sync Discord Stage. Check the global Discord settings.", 'error');
+        }
+    }
+
+    async syncPlaybackState() {
+        if (!this.currentRoom) return;
+        if (!this.canControlPlayback()) {
+            this.showToast("Only hosts or playback-enabled participants can resync playback.", 'error');
+            return;
+        }
+
+        try {
+            const resp = await this.request(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Playback/Resync`, { method: 'POST' });
+            if (!resp.ok) {
+                const detail = await resp.text().catch(() => '');
+                throw new Error(detail || `Playback resync failed with ${resp.status}`);
+            }
+            this.showToast('Playback resynced for the room.', 'success');
+            await this.refreshRoom();
+        } catch (e) {
+            console.error('Playback resync failed:', e);
+            this.showToast(e?.message || 'Unable to resync playback.', 'error');
         }
     }
 

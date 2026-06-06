@@ -1014,6 +1014,10 @@ h1 {
     width: 100%;
 }
 
+.room-layout-controls .secondary-command.compact {
+    min-width: 0;
+}
+
 .room-inline-actions {
     display: flex;
     flex-wrap: wrap;
@@ -2751,6 +2755,43 @@ body.theme-scifi {
 
     .participant-actions {
         width: 100%;
+    }
+
+    .sidebar {
+        position: sticky;
+        bottom: 0;
+        max-height: 56vh;
+        overflow: auto;
+        z-index: 18;
+    }
+
+    body.room-management-floating .sidebar {
+        position: sticky;
+        bottom: 0;
+    }
+
+    body.room-management-floating #room-management {
+        position: fixed;
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        z-index: 60;
+        max-height: 44vh;
+        overflow: auto;
+        border-radius: 14px;
+        box-shadow: var(--shadow-soft);
+        backdrop-filter: blur(18px);
+    }
+
+    body.room-management-scroll #room-management {
+        max-height: 46vh;
+        overflow: auto;
+    }
+
+    body.room-management-docked #room-management {
+        position: static;
+        max-height: none;
+        overflow: visible;
     }
 }
 
