@@ -8,7 +8,7 @@ class JellTogetherApp {
         this.enabledLibraryIds = [];
         this.allowQueueVotingByDefault = true;
         this.allowParticipantQueueAdds = true;
-        this.pluginVersion = "1.4.0.0";
+        this.pluginVersion = "1.4.0.1";
         this.changelog = [];
         this.currentRoom = null;
         this.currentUser = "Unknown";
