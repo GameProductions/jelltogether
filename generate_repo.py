@@ -36,7 +36,7 @@ CHANGELOG = """Full-stack security and stability hardening.
 
 HISTORICAL_RELEASES = [
     {
-        "version": "1.3.4.0",
+        "version": "1.3.6.0",
         "changelog": """Republish Discord Stage settings and playback diagnostics as a fresh Jellyfin patch release.
 
 - Moved Discord Stage bot configuration out of individual watch party rooms and into the administrator-only global settings page.
