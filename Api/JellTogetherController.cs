@@ -154,6 +154,11 @@ namespace JellTogether.Plugin.Api
         public string Error { get; set; } = string.Empty;
     }
 
+    public class PlaybackDeviceRequest
+    {
+        public string SessionId { get; set; } = string.Empty;
+    }
+
     [ApiController]
     [Route("jelltogether")]
     [Authorize]
@@ -682,66 +687,14 @@ namespace JellTogether.Plugin.Api
                 return BadRequest(CanManage(room) ? noTargetsResult : RedactPlaybackDiagnostics(noTargetsResult));
             }
 
-            var controllingSessionId = ControllerSessionId();
-            var controllingUserId = ControllerUserGuid();
-            var startPositionTicks = StartPositionTicksFor(room, item);
-            var attempts = new List<PlaybackStartAttempt>();
-            foreach (var target in targets)
-            {
-                var targetUserId = Guid.TryParse(target.UserId, out var parsedTargetUserId)
-                    ? parsedTargetUserId
-                    : Guid.Empty;
-                var playRequest = new PlayRequest
-                {
-                    ItemIds = new[] { mediaId },
-                    StartPositionTicks = startPositionTicks,
-                    PlayCommand = PlayCommand.PlayNow,
-                    ControllingUserId = controllingUserId == Guid.Empty ? targetUserId : controllingUserId
-                };
-                var attempt = new PlaybackStartAttempt
-                {
-                    SessionId = target.SessionId,
-                    ControllerSessionId = string.IsNullOrWhiteSpace(controllingSessionId) ? target.SessionId : controllingSessionId,
-                    UserName = target.UserName,
-                    Client = target.Client,
-                    DeviceName = target.DeviceName
-                };
-
-                try
-                {
-                    await _sessionManager.SendPlayCommand(attempt.ControllerSessionId, target.SessionId, playRequest, cancellationToken).ConfigureAwait(false);
-                    attempt.Success = true;
-                    attempt.Status = "Command sent";
-                }
-                catch (Exception ex)
-                {
-                    attempt.Success = false;
-                    attempt.Status = "Command failed";
-                    attempt.Error = ex.Message;
-                }
-
-                attempts.Add(attempt);
-            }
-
-            var failed = attempts.Where(attempt => !attempt.Success).Select(attempt => attempt.SessionId).ToList();
+            var result = await SendPlaybackToTargets(room, item, targets, cancellationToken);
+            var failed = result.FailedSessionIds;
             if (failed.Count < targets.Count)
             {
                 _roomManager.MarkNowPlaying(roomId, item);
                 await TrySyncDiscordPlayback(roomId, item.Title, cancellationToken);
             }
-
-            var result = new StartWatchPartyResult
-            {
-                Title = item.Title,
-                EligibleCount = targets.Count,
-                StartedCount = targets.Count - failed.Count,
-                FailedSessionIds = failed,
-                ControllingSessionId = string.IsNullOrWhiteSpace(controllingSessionId) ? attempts.FirstOrDefault()?.ControllerSessionId ?? string.Empty : controllingSessionId,
-                ControllingUserId = controllingUserId.ToString(),
-                Attempts = attempts,
-                AvailableTargets = availableTargets
-            };
-
+            result.AvailableTargets = availableTargets;
             return Ok(CanManage(room) ? result : RedactPlaybackDiagnostics(result));
         }
 
@@ -763,7 +716,11 @@ namespace JellTogether.Plugin.Api
             if (!IsMediaItemAllowed(mediaId, item.LibraryId)) return Forbid();
 
             var availableTargets = PlaybackTargetsForRoom(room);
-            var targets = availableTargets
+            var managedSessionIds = _roomManager.GetActivePlaybackSessionIds(roomId);
+            var managedTargets = availableTargets
+                .Where(target => managedSessionIds.Count == 0 || managedSessionIds.Contains(target.SessionId, StringComparer.OrdinalIgnoreCase))
+                .ToList();
+            var targets = managedTargets
                 .Where(target => target.CanStartPlayback)
                 .ToList();
 
@@ -779,62 +736,51 @@ namespace JellTogether.Plugin.Api
                 return BadRequest(CanManage(room) ? noTargetsResult : RedactPlaybackDiagnostics(noTargetsResult));
             }
 
-            var controllingSessionId = ControllerSessionId();
-            var controllingUserId = ControllerUserGuid();
-            var startPositionTicks = StartPositionTicksFor(room, item);
-            var attempts = new List<PlaybackStartAttempt>();
+            var result = await SendPlaybackToTargets(room, item, targets, cancellationToken);
+            result.AvailableTargets = availableTargets;
+            return Ok(CanManage(room) ? result : RedactPlaybackDiagnostics(result));
+        }
 
-            foreach (var target in targets)
+        [HttpPost("Rooms/{roomId}/PlaybackDevices")]
+        public async Task<ActionResult<StartWatchPartyResult>> AddPlaybackDevice(string roomId, [FromBody] PlaybackDeviceRequest request, CancellationToken cancellationToken)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanControlPlayback(room)) return Forbid();
+            if (string.IsNullOrWhiteSpace(request?.SessionId)) return BadRequest("Session id is required.");
+
+            var target = PlaybackTargetsForRoom(room).FirstOrDefault(t => t.SessionId.Equals(request.SessionId, StringComparison.OrdinalIgnoreCase));
+            if (target == null) return NotFound();
+            if (!target.CanStartPlayback) return BadRequest(target.EligibilityReason);
+
+            _roomManager.SetActivePlaybackSession(roomId, target.SessionId, true);
+
+            if (string.IsNullOrWhiteSpace(room.NowPlayingMediaId))
             {
-                var targetUserId = Guid.TryParse(target.UserId, out var parsedTargetUserId)
-                    ? parsedTargetUserId
-                    : Guid.Empty;
-                var playRequest = new PlayRequest
+                return Ok(new StartWatchPartyResult
                 {
-                    ItemIds = new[] { mediaId },
-                    StartPositionTicks = startPositionTicks,
-                    PlayCommand = PlayCommand.PlayNow,
-                    ControllingUserId = controllingUserId == Guid.Empty ? targetUserId : controllingUserId
-                };
-                var attempt = new PlaybackStartAttempt
-                {
-                    SessionId = target.SessionId,
-                    ControllerSessionId = string.IsNullOrWhiteSpace(controllingSessionId) ? target.SessionId : controllingSessionId,
-                    UserName = target.UserName,
-                    Client = target.Client,
-                    DeviceName = target.DeviceName
-                };
-
-                try
-                {
-                    await _sessionManager.SendPlayCommand(attempt.ControllerSessionId, target.SessionId, playRequest, cancellationToken).ConfigureAwait(false);
-                    attempt.Success = true;
-                    attempt.Status = "Command sent";
-                }
-                catch (Exception ex)
-                {
-                    attempt.Success = false;
-                    attempt.Status = "Command failed";
-                    attempt.Error = ex.Message;
-                }
-
-                attempts.Add(attempt);
+                    Title = room.NowPlayingTitle,
+                    EligibleCount = 1,
+                    StartedCount = 0,
+                    AvailableTargets = PlaybackTargetsForRoom(room)
+                });
             }
 
-            var failed = attempts.Where(attempt => !attempt.Success).Select(attempt => attempt.SessionId).ToList();
-            var result = new StartWatchPartyResult
-            {
-                Title = item.Title,
-                EligibleCount = targets.Count,
-                StartedCount = targets.Count - failed.Count,
-                FailedSessionIds = failed,
-                ControllingSessionId = string.IsNullOrWhiteSpace(controllingSessionId) ? attempts.FirstOrDefault()?.ControllerSessionId ?? string.Empty : controllingSessionId,
-                ControllingUserId = controllingUserId.ToString(),
-                Attempts = attempts,
-                AvailableTargets = availableTargets
-            };
+            var item = room.Queue.FirstOrDefault(queueItem => queueItem.MediaId == room.NowPlayingMediaId);
+            if (item == null) return BadRequest("The active playback item is no longer in the queue.");
+            if (!Guid.TryParse(item.MediaId, out var mediaId)) return BadRequest("Queue item is not linked to a playable Jellyfin item.");
+            if (!IsMediaItemAllowed(mediaId, item.LibraryId)) return Forbid();
 
-            return Ok(CanManage(room) ? result : RedactPlaybackDiagnostics(result));
+            return await SendPlaybackToTargets(room, item, new List<PlaybackTargetDto> { target }, cancellationToken);
+        }
+
+        [HttpDelete("Rooms/{roomId}/PlaybackDevices/{sessionId}")]
+        public ActionResult RemovePlaybackDevice(string roomId, string sessionId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanControlPlayback(room)) return Forbid();
+            return _roomManager.SetActivePlaybackSession(roomId, sessionId, false) ? Ok() : NotFound();
         }
 
         [HttpPost("Rooms/{roomId}/Theories")]
@@ -1387,7 +1333,10 @@ namespace JellTogether.Plugin.Api
                         {
                             UserId = participant,
                             DisplayName = session?.UserName ?? participant,
-                            MediaUserId = session?.UserId.ToString("D") ?? (Guid.TryParse(participant, out var participantGuid) ? participantGuid.ToString("D") : string.Empty)
+                            MediaUserId = session?.UserId.ToString("D") ?? (Guid.TryParse(participant, out var participantGuid) ? participantGuid.ToString("D") : string.Empty),
+                            ProfileImageUrl = session is not null && session.UserId != Guid.Empty
+                                ? $"/Users/{session.UserId:D}/Images/Primary?fillHeight=160&fillWidth=160&quality=90"
+                                : string.Empty
                         };
                     },
                     StringComparer.OrdinalIgnoreCase);
@@ -1539,6 +1488,64 @@ namespace JellTogether.Plugin.Api
             var elapsed = DateTime.UtcNow - room.NowPlayingStartedAt.Value;
             if (elapsed <= TimeSpan.Zero) return 0;
             return elapsed.Ticks;
+        }
+
+        private async Task<StartWatchPartyResult> SendPlaybackToTargets(JellTogetherRoom room, JellTogether.Plugin.Services.QueueItem item, List<PlaybackTargetDto> targets, CancellationToken cancellationToken)
+        {
+            var controllingSessionId = ControllerSessionId();
+            var controllingUserId = ControllerUserGuid();
+            var startPositionTicks = StartPositionTicksFor(room, item);
+            var attempts = new List<PlaybackStartAttempt>();
+
+            foreach (var target in targets)
+            {
+                var targetUserId = Guid.TryParse(target.UserId, out var parsedTargetUserId)
+                    ? parsedTargetUserId
+                    : Guid.Empty;
+                var playRequest = new PlayRequest
+                {
+                    ItemIds = new[] { Guid.Parse(item.MediaId) },
+                    StartPositionTicks = startPositionTicks,
+                    PlayCommand = PlayCommand.PlayNow,
+                    ControllingUserId = controllingUserId == Guid.Empty ? targetUserId : controllingUserId
+                };
+                var attempt = new PlaybackStartAttempt
+                {
+                    SessionId = target.SessionId,
+                    ControllerSessionId = string.IsNullOrWhiteSpace(controllingSessionId) ? target.SessionId : controllingSessionId,
+                    UserName = target.UserName,
+                    Client = target.Client,
+                    DeviceName = target.DeviceName
+                };
+
+                try
+                {
+                    await _sessionManager.SendPlayCommand(attempt.ControllerSessionId, target.SessionId, playRequest, cancellationToken).ConfigureAwait(false);
+                    attempt.Success = true;
+                    attempt.Status = "Command sent";
+                    _roomManager.SetActivePlaybackSession(room.Id, target.SessionId, true);
+                }
+                catch (Exception ex)
+                {
+                    attempt.Success = false;
+                    attempt.Status = "Command failed";
+                    attempt.Error = ex.Message;
+                }
+
+                attempts.Add(attempt);
+            }
+
+            var failed = attempts.Where(attempt => !attempt.Success).Select(attempt => attempt.SessionId).ToList();
+            return new StartWatchPartyResult
+            {
+                Title = item.Title,
+                EligibleCount = targets.Count,
+                StartedCount = targets.Count - failed.Count,
+                FailedSessionIds = failed,
+                ControllingSessionId = string.IsNullOrWhiteSpace(controllingSessionId) ? attempts.FirstOrDefault()?.ControllerSessionId ?? string.Empty : controllingSessionId,
+                ControllingUserId = controllingUserId.ToString(),
+                Attempts = attempts
+            };
         }
 
         private async Task TrySyncDiscordPlayback(string roomId, string title, CancellationToken cancellationToken)

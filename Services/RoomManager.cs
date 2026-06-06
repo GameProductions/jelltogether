@@ -45,6 +45,7 @@ namespace JellTogether.Plugin.Services
         public string LastDiscordChatMessageId { get; set; } = string.Empty;
         public DateTime? LastDiscordChatSyncAt { get; set; }
         public List<string> RecentReactions { get; set; } = new();
+        public List<string> ActivePlaybackSessionIds { get; set; } = new();
         public string NowPlayingTitle { get; set; } = string.Empty;
         public string NowPlayingMediaId { get; set; } = string.Empty;
         public DateTime? NowPlayingStartedAt { get; set; }
@@ -123,6 +124,7 @@ namespace JellTogether.Plugin.Services
         public string UserId { get; set; } = string.Empty;
         public string DisplayName { get; set; } = string.Empty;
         public string MediaUserId { get; set; } = string.Empty;
+        public string ProfileImageUrl { get; set; } = string.Empty;
     }
 
     public enum JoinRoomResult
@@ -1073,7 +1075,43 @@ namespace JellTogether.Plugin.Services
                 room.NowPlayingTitle = item.Title;
                 room.NowPlayingMediaId = item.MediaId;
                 room.NowPlayingStartedAt = DateTime.UtcNow;
+                room.ActivePlaybackSessionIds.Clear();
                 Touch(room);
+            }
+        }
+
+        public bool SetActivePlaybackSession(string roomId, string sessionId, bool active)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room)) return false;
+                sessionId = TrimToLimit(sessionId, 64);
+                if (string.IsNullOrWhiteSpace(sessionId)) return false;
+
+                if (active)
+                {
+                    if (!room.ActivePlaybackSessionIds.Contains(sessionId, StringComparer.OrdinalIgnoreCase))
+                    {
+                        room.ActivePlaybackSessionIds.Add(sessionId);
+                        Touch(room);
+                    }
+                }
+                else
+                {
+                    var removed = room.ActivePlaybackSessionIds.RemoveAll(id => id.Equals(sessionId, StringComparison.OrdinalIgnoreCase)) > 0;
+                    if (removed) Touch(room);
+                }
+
+                return true;
+            }
+        }
+
+        public List<string> GetActivePlaybackSessionIds(string roomId)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room)) return new List<string>();
+                return room.ActivePlaybackSessionIds.ToList();
             }
         }
 

@@ -1018,6 +1018,50 @@ h1 {
     min-width: 0;
 }
 
+.theater-preview-card {
+    display: grid;
+    gap: 8px;
+    padding: 14px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.theater-preview-screen {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
+    border-radius: 8px;
+    border: 1px solid rgba(94, 234, 212, 0.18);
+    background: linear-gradient(135deg, rgba(11, 15, 32, 0.96), rgba(21, 25, 45, 0.96));
+    box-shadow: var(--shadow-soft);
+}
+
+.theater-preview-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.theater-preview-caption {
+    position: absolute;
+    left: 12px;
+    bottom: 12px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: rgba(6, 8, 20, 0.72);
+    color: var(--text-main);
+    font-size: 0.7rem;
+    font-weight: 800;
+    letter-spacing: 0;
+}
+
+.theater-preview-screen .theater-preview-caption {
+    z-index: 2;
+}
+
 .room-inline-actions {
     display: flex;
     flex-wrap: wrap;

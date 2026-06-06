@@ -7,7 +7,7 @@ class JellTogetherApp {
         this.enabledLibraryIds = [];
         this.allowQueueVotingByDefault = true;
         this.allowParticipantQueueAdds = true;
-        this.pluginVersion = "1.4.3.4";
+        this.pluginVersion = "1.4.3.5";
         this.changelog = [];
         this.currentRoom = null;
         this.currentUser = "Unknown";
@@ -815,6 +815,7 @@ class JellTogetherApp {
             requireJoinApproval: this.prop(room, 'requireJoinApproval', null, false),
             isJoinLocked: this.prop(room, 'isJoinLocked', null, false),
             discordStageId: this.prop(room, 'discordStageId', null, ''),
+            activePlaybackSessionIds: this.prop(room, 'activePlaybackSessionIds', null, []),
             pendingParticipantIds: this.prop(room, 'pendingParticipantIds', null, []),
             bannedParticipantIds: this.prop(room, 'bannedParticipantIds', null, []),
             nowPlayingTitle: this.prop(room, 'nowPlayingTitle', null, ''),
@@ -1971,6 +1972,39 @@ class JellTogetherApp {
         this.updateTheaterPlaybackSurface();
     }
 
+    updateTheaterPreview(video, item = null) {
+        if (!video || !this.currentRoom) return;
+        const activeItem = item || this.currentRoom.queue?.find(queueItem => queueItem.mediaId && queueItem.mediaId === this.currentRoom.nowPlayingMediaId);
+        if (!activeItem || !this.currentRoom.nowPlayingTitle) {
+            this.stopTheaterVideo(video);
+            return;
+        }
+
+        const mediaSourceUrl = this.playbackStreamUrl(activeItem);
+        if (!mediaSourceUrl) {
+            this.stopTheaterVideo(video);
+            return;
+        }
+
+        const signature = `${activeItem.mediaId}:${mediaSourceUrl}`;
+        if (this.theaterVideoItem !== signature || this.theaterVideoUrl !== mediaSourceUrl) {
+            this.theaterVideoItem = signature;
+            this.theaterVideoUrl = mediaSourceUrl;
+            video.src = mediaSourceUrl;
+            video.hidden = false;
+            video.oncanplay = () => {
+                const currentSeconds = this.currentRoom?.nowPlayingStartedAt
+                    ? Math.max(0, (Date.now() - new Date(this.currentRoom.nowPlayingStartedAt).getTime()) / 1000)
+                    : 0;
+                if (Number.isFinite(currentSeconds) && currentSeconds > 0) {
+                    try { video.currentTime = currentSeconds; } catch (e) { /* ignore */ }
+                }
+                video.play?.().catch(() => {});
+            };
+            video.onerror = () => this.stopTheaterVideo(video);
+        }
+    }
+
     async showTheaterControls() {
         if (!this.currentRoom) return;
         if (!this.canControlPlayback()) {
@@ -2105,6 +2139,26 @@ class JellTogetherApp {
         modal.appendChild(this.textEl('h3', 'Playback Targets'));
         modal.appendChild(this.textEl('p', 'Active Jellyfin sessions that can receive watch party playback.', 'modal-subtitle'));
 
+        const previewCard = document.createElement('section');
+        previewCard.className = 'theater-preview-card';
+        previewCard.appendChild(this.textEl('strong', 'Theater Preview'));
+        previewCard.appendChild(this.textEl('span', this.currentRoom.nowPlayingTitle || 'No synced media selected', 'room-note'));
+
+        const previewScreen = document.createElement('div');
+        previewScreen.className = 'theater-preview-screen';
+        const previewVideo = document.createElement('video');
+        previewVideo.className = 'theater-preview-video';
+        previewVideo.playsInline = true;
+        previewVideo.muted = true;
+        previewVideo.loop = true;
+        previewVideo.autoplay = true;
+        previewVideo.controls = false;
+        previewVideo.hidden = true;
+        previewScreen.appendChild(previewVideo);
+        previewScreen.appendChild(this.textEl('div', 'The preview follows the current room playback position.', 'theater-preview-caption'));
+        previewCard.appendChild(previewScreen);
+        modal.appendChild(previewCard);
+
         const targetList = document.createElement('div');
         targetList.className = 'playback-target-list';
         targetList.appendChild(this.textEl('div', 'Finding active Jellyfin sessions...', 'loading'));
@@ -2123,6 +2177,7 @@ class JellTogetherApp {
         const refresh = async () => {
             try {
                 const targets = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackTargets`);
+                this.updateTheaterPreview(previewVideo);
                 this.renderPlaybackTargetSummary(targetList, targets || []);
             } catch (e) {
                 console.error("Playback Target Summary Error:", e);
@@ -2146,6 +2201,27 @@ class JellTogetherApp {
         modal.className = 'app-modal glass-card playback-modal';
         modal.appendChild(this.textEl('h3', 'Start Watch Party'));
         modal.appendChild(this.textEl('p', item.title, 'modal-subtitle'));
+
+        const previewCard = document.createElement('section');
+        previewCard.className = 'theater-preview-card';
+        previewCard.appendChild(this.textEl('strong', 'Theater Preview'));
+        previewCard.appendChild(this.textEl('span', this.currentRoom.nowPlayingTitle || item.title || 'Ready to start', 'room-note'));
+
+        const previewScreen = document.createElement('div');
+        previewScreen.className = 'theater-preview-screen';
+        const previewVideo = document.createElement('video');
+        previewVideo.className = 'theater-preview-video';
+        previewVideo.playsInline = true;
+        previewVideo.muted = true;
+        previewVideo.loop = true;
+        previewVideo.autoplay = true;
+        previewVideo.controls = false;
+        previewVideo.hidden = true;
+        previewScreen.appendChild(previewVideo);
+        previewScreen.appendChild(this.textEl('div', 'The preview follows the current room playback position.', 'theater-preview-caption'));
+        previewCard.appendChild(previewScreen);
+        modal.appendChild(previewCard);
+        this.updateTheaterPreview(previewVideo, item);
 
         const targetList = document.createElement('div');
         targetList.className = 'playback-target-list';
@@ -2174,6 +2250,7 @@ class JellTogetherApp {
             try {
                 const targets = await this.fetchJson(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackTargets`);
                 const previouslySelected = new Set(this.selectedPlaybackTargets(targetList));
+                this.updateTheaterPreview(previewVideo, item);
                 this.renderPlaybackTargets(targetList, targets || [], startButton, () => this.showStartWatchPartyModal(item));
                 
                 if (previouslySelected.size > 0) {
@@ -2254,6 +2331,7 @@ class JellTogetherApp {
             
             actionWrapper.appendChild(infoBtn);
             actionWrapper.appendChild(tooltip);
+            actionWrapper.appendChild(this.renderPlaybackDeviceToggle(target));
             
             infoBtn.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -2343,6 +2421,7 @@ class JellTogetherApp {
             
             actionWrapper.appendChild(infoBtn);
             actionWrapper.appendChild(tooltip);
+            actionWrapper.appendChild(this.renderPlaybackDeviceToggle(target, true));
             
             infoBtn.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -2355,6 +2434,35 @@ class JellTogetherApp {
         });
         
         startButton.disabled = this.selectedPlaybackTargets(container).length === 0;
+    }
+
+    renderPlaybackDeviceToggle(target, compact = false) {
+        const activeIds = new Set(this.currentRoom?.activePlaybackSessionIds || []);
+        const isManaged = activeIds.has(target.sessionId);
+        const label = isManaged ? 'Remove' : 'Add';
+        const button = this.button(label, compact ? 'micro-command' : 'secondary-command compact', async () => {
+            try {
+                const method = isManaged ? 'DELETE' : 'POST';
+                const url = isManaged
+                    ? `/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackDevices/${encodeURIComponent(target.sessionId)}`
+                    : `/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/PlaybackDevices`;
+                const options = isManaged
+                    ? { method }
+                    : { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: target.sessionId }) };
+                const resp = await this.request(url, options);
+                if (!resp.ok) {
+                    const detail = await resp.text().catch(() => '');
+                    throw new Error(detail || `Playback device update failed with ${resp.status}`);
+                }
+                await this.refreshRoom();
+                this.showToast(isManaged ? 'Playback device removed.' : 'Playback device added.', 'success');
+            } catch (e) {
+                console.error('Playback device toggle failed:', e);
+                this.showToast(e?.message || 'Could not update playback device.', 'error');
+            }
+        });
+        button.title = isManaged ? 'Stop tracking this device for room sync' : 'Track this device for room sync';
+        return button;
     }
 
     showTargetDetailsModal(target, backAction) {
@@ -2837,14 +2945,18 @@ class JellTogetherApp {
     participantAvatar(userId, className) {
         const wrapper = this.textEl('span', this.participantInitials(userId), `${className} avatar-fallback`);
         const mediaUserId = this.participantMediaUserId(userId);
-        if (!mediaUserId || userId === 'Unknown') return wrapper;
+        const profile = this.participantProfile(userId);
+        const profileImageUrl = profile?.profileImageUrl || '';
+        if (!mediaUserId && !profileImageUrl || userId === 'Unknown') return wrapper;
 
         const image = document.createElement('img');
         image.alt = '';
         image.loading = 'lazy';
         const token = this.getAccessToken();
         const tokenParam = token ? `&api_key=${encodeURIComponent(token)}` : '';
-        image.src = this.apiUrl(`/Users/${encodeURIComponent(mediaUserId)}/Images/Primary?fillHeight=160&fillWidth=160&quality=90${tokenParam}`);
+        image.src = profileImageUrl
+            ? this.apiUrl(`${profileImageUrl}${tokenParam}`)
+            : this.apiUrl(`/Users/${encodeURIComponent(mediaUserId)}/Images/Primary?fillHeight=160&fillWidth=160&quality=90${tokenParam}`);
         image.onload = () => {
             wrapper.textContent = '';
             wrapper.classList.remove('avatar-fallback');
