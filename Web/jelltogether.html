@@ -66,7 +66,11 @@
 
                 <button type="button" class="player-placeholder" id="theater-screen" onclick="app.showTheaterControls()" aria-label="Open theater controls">
                     <div class="player-frame">
+                        <video id="theater-video" class="theater-video" playsinline muted loop autoplay preload="metadata" hidden></video>
                         <div class="play-mark"></div>
+                        <div class="theater-screen-overlay">
+                            <span class="theater-live-pill">Live room playback</span>
+                        </div>
                         <span id="now-playing-title">No synced media selected</span>
                     </div>
                 </button>

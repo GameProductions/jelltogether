@@ -22,6 +22,8 @@ class JellTogetherApp {
         this.xrSupported = false;
         this.xrDomOverlaySupported = false;
         this.xrMode = 'fallback';
+        this.theaterVideoItem = null;
+        this.theaterVideoUrl = '';
         this.lang = 'en';
         this.t = JELL_TOGETHER_I18N[this.lang];
         this.activeSidebarTab = 'chat';
@@ -145,6 +147,7 @@ class JellTogetherApp {
         this.updateVersionLabels();
         this.updateServerIndicator();
         this.updateDiscordStageActionState();
+        await this.updateTheaterPlaybackSurface();
     }
 
     setupEventHandlers() {
@@ -1392,7 +1395,7 @@ class JellTogetherApp {
         const userId = this.currentJellyfinUserId();
         if (!userId || !item.mediaId) return item;
         const params = new URLSearchParams({
-            Fields: 'Overview,Genres,People,Studios,Tags,ProviderIds,RunTimeTicks,CommunityRating,OfficialRating,PremiereDate,ProductionYear,ParentId,SeriesId,SeasonId,ImageTags'
+            Fields: 'Overview,Genres,People,Studios,Tags,ProviderIds,RunTimeTicks,CommunityRating,OfficialRating,PremiereDate,ProductionYear,ParentId,SeriesId,SeasonId,ImageTags,MediaSources'
         });
         const data = await this.fetchJson(`/Users/${encodeURIComponent(userId)}/Items/${encodeURIComponent(item.mediaId)}?${params}`);
         const details = this.normalizeMediaDetails(data, item);
@@ -1425,7 +1428,8 @@ class JellTogetherApp {
             seriesName: data.SeriesName || data.seriesName || fallback.seriesName || '',
             seasonId: data.SeasonId || data.seasonId || fallback.seasonId || '',
             seasonName: data.SeasonName || data.seasonName || fallback.seasonName || '',
-            parentId: data.ParentId || data.parentId || fallback.parentId || ''
+            parentId: data.ParentId || data.parentId || fallback.parentId || '',
+            mediaSourceId: Array.isArray(data.MediaSources || data.mediaSources) ? ((data.MediaSources || data.mediaSources)[0]?.Id || (data.MediaSources || data.mediaSources)[0]?.id || '') : ''
         };
     }
 
@@ -1928,8 +1932,10 @@ class JellTogetherApp {
             const canControl = this.canControlPlayback();
             screen.disabled = !canControl;
             screen.classList.toggle('is-clickable', canControl);
+            screen.classList.toggle('is-playing', Boolean(this.currentRoom.nowPlayingTitle));
             screen.title = canControl ? 'Open theater controls' : 'Only hosts or playback-enabled participants can control the theater screen';
         }
+        this.updateTheaterPlaybackSurface();
     }
 
     async showTheaterControls() {
@@ -1990,6 +1996,67 @@ class JellTogetherApp {
         overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
+    }
+
+    async updateTheaterPlaybackSurface() {
+        const screen = document.getElementById('theater-screen');
+        const video = document.getElementById('theater-video');
+        if (!screen || !video || !this.currentRoom) return;
+
+        const activeItem = this.currentRoom.queue?.find(item => item.mediaId && item.mediaId === this.currentRoom.nowPlayingMediaId);
+        if (!activeItem || !this.currentRoom.nowPlayingTitle) {
+            this.stopTheaterVideo(video, screen);
+            return;
+        }
+
+        const details = await this.fetchMediaDetails(activeItem).catch(() => activeItem);
+        const mediaSourceUrl = this.playbackStreamUrl(details);
+        if (!mediaSourceUrl) {
+            this.stopTheaterVideo(video, screen);
+            return;
+        }
+
+        if (this.theaterVideoItem !== activeItem.mediaId || this.theaterVideoUrl !== mediaSourceUrl) {
+            this.theaterVideoItem = activeItem.mediaId;
+            this.theaterVideoUrl = mediaSourceUrl;
+            video.src = mediaSourceUrl;
+            video.hidden = false;
+            video.oncanplay = () => {
+                const currentSeconds = this.currentRoom?.nowPlayingStartedAt
+                    ? Math.max(0, (Date.now() - new Date(this.currentRoom.nowPlayingStartedAt).getTime()) / 1000)
+                    : 0;
+                if (Number.isFinite(currentSeconds) && currentSeconds > 0) {
+                    try { video.currentTime = currentSeconds; } catch (e) { /* ignore */ }
+                }
+                video.play?.().catch(() => {});
+            };
+            video.onerror = () => this.stopTheaterVideo(video, screen);
+            screen.classList.add('is-playing');
+        }
+    }
+
+    stopTheaterVideo(video, screen = null) {
+        if (video) {
+            try { video.pause(); } catch (e) { /* ignore */ }
+            video.removeAttribute('src');
+            video.load?.();
+            video.hidden = true;
+        }
+        this.theaterVideoItem = null;
+        this.theaterVideoUrl = '';
+        if (screen) screen.classList.remove('is-playing');
+    }
+
+    playbackStreamUrl(item) {
+        if (!item?.mediaId) return '';
+        const token = this.getAccessToken();
+        const mediaSourceId = item.mediaSourceId || '';
+        const sourceParam = mediaSourceId ? `&mediaSourceId=${encodeURIComponent(mediaSourceId)}` : '';
+        const startTicks = this.currentRoom?.nowPlayingStartedAt
+            ? Math.max(0, Math.round((Date.now() - new Date(this.currentRoom.nowPlayingStartedAt).getTime()) * 10000))
+            : 0;
+        const startParam = startTicks > 0 ? `&startTimeTicks=${startTicks}` : '';
+        return this.apiUrl(`/Videos/${encodeURIComponent(item.mediaId)}/stream?static=true${sourceParam}${startParam}${token ? `&api_key=${encodeURIComponent(token)}` : ''}`);
     }
 
     async showPlaybackTargetsModal() {

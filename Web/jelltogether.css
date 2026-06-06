@@ -734,6 +734,10 @@ h1 {
     cursor: default;
 }
 
+.player-placeholder.is-playing {
+    cursor: pointer;
+}
+
 .player-placeholder::before {
     content: "";
     position: absolute;
@@ -757,6 +761,17 @@ h1 {
     opacity: 0.78;
 }
 
+.theater-video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: #04050b;
+    pointer-events: none;
+    filter: saturate(1.04) contrast(1.02);
+}
+
 .player-frame {
     position: relative;
     z-index: 1;
@@ -765,6 +780,46 @@ h1 {
     place-items: center;
     color: var(--text-muted);
     font-weight: 800;
+}
+
+.theater-screen-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-end;
+    pointer-events: none;
+    padding: 14px;
+    z-index: 2;
+}
+
+.theater-live-pill {
+    padding: 5px 10px;
+    border: 1px solid rgba(94, 234, 212, 0.22);
+    border-radius: 999px;
+    background: rgba(7, 10, 22, 0.62);
+    color: var(--text-main);
+    font-size: 0.64rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.player-placeholder.is-playing .play-mark,
+.player-placeholder.is-playing::before {
+    opacity: 0;
+}
+
+.player-placeholder.is-playing #now-playing-title {
+    position: absolute;
+    left: 18px;
+    bottom: 16px;
+    max-width: calc(100% - 36px);
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(7, 10, 22, 0.62);
+    backdrop-filter: blur(10px);
+    z-index: 3;
 }
 
 .play-mark {
