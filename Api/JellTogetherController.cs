@@ -209,11 +209,15 @@ namespace JellTogether.Plugin.Api
         public ActionResult<object> GetCurrentUser()
         {
             var mediaUserGuid = ControllerUserGuid();
+            var profileImageUrl = mediaUserGuid == Guid.Empty
+                ? string.Empty
+                : $"/Users/{mediaUserGuid:D}/Images/Primary?fillHeight=160&fillWidth=160&quality=90";
             return Ok(new
             {
                 id = CurrentUserId,
                 name = CurrentUserId,
-                mediaUserId = mediaUserGuid == Guid.Empty ? CurrentUserId : mediaUserGuid.ToString("D")
+                mediaUserId = mediaUserGuid == Guid.Empty ? CurrentUserId : mediaUserGuid.ToString("D"),
+                profileImageUrl
             });
         }
 
@@ -752,7 +756,7 @@ namespace JellTogether.Plugin.Api
             var sessionState = DetectRoomPlaybackSession(room);
             if (sessionState == null) return BadRequest("No active Jellyfin playback session was detected for this room.");
 
-            _roomManager.SetRoomPlaybackState(roomId, sessionState.Title, sessionState.MediaId, sessionState.StartedAtUtc);
+            _roomManager.SetRoomPlaybackState(roomId, sessionState.Title, sessionState.MediaId, sessionState.StartedAtUtc, sessionState.PositionTicks, sessionState.IsPaused);
 
             var item = new JellTogether.Plugin.Services.QueueItem
             {
@@ -1375,15 +1379,22 @@ namespace JellTogether.Plugin.Api
                     participant => participant,
                     participant =>
                     {
-                        var session = _sessionManager.Sessions.FirstOrDefault(activeSession => SessionMatchesUser(activeSession, participant));
+                        var session = _sessionManager.Sessions.FirstOrDefault(activeSession => SessionMatchesUser(activeSession, participant))
+                            ?? _sessionManager.Sessions.FirstOrDefault(activeSession => SessionMatchesUser(activeSession, CurrentUserId))
+                            ?? _sessionManager.Sessions.FirstOrDefault(activeSession =>
+                                room.ParticipantProfiles.TryGetValue(participant, out var profile) &&
+                                new[] { profile.UserId, profile.DisplayName, profile.MediaUserId }
+                                    .Any(candidate => SessionMatchesUser(activeSession, candidate)));
+                        var profileImageUrl = session is not null && session.UserId != Guid.Empty
+                            ? $"/Users/{session.UserId:D}/Images/Primary?fillHeight=160&fillWidth=160&quality=90"
+                            : string.Empty;
+
                         return new ParticipantProfile
                         {
                             UserId = participant,
                             DisplayName = session?.UserName ?? participant,
                             MediaUserId = session?.UserId.ToString("D") ?? (Guid.TryParse(participant, out var participantGuid) ? participantGuid.ToString("D") : string.Empty),
-                            ProfileImageUrl = session is not null && session.UserId != Guid.Empty
-                                ? $"/Users/{session.UserId:D}/Images/Primary?fillHeight=160&fillWidth=160&quality=90"
-                                : string.Empty
+                            ProfileImageUrl = profileImageUrl
                         };
                     },
                     StringComparer.OrdinalIgnoreCase);
@@ -1543,7 +1554,7 @@ namespace JellTogether.Plugin.Api
             if (room == null) return;
             var sessionState = DetectRoomPlaybackSession(room);
             if (sessionState == null) return;
-            _roomManager.SetRoomPlaybackState(roomId, sessionState.Title, sessionState.MediaId, sessionState.StartedAtUtc);
+            _roomManager.SetRoomPlaybackState(roomId, sessionState.Title, sessionState.MediaId, sessionState.StartedAtUtc, sessionState.PositionTicks, sessionState.IsPaused);
             await Task.CompletedTask;
         }
 
@@ -1572,7 +1583,9 @@ namespace JellTogether.Plugin.Api
                     LibraryId = GetSessionNowPlayingLibraryId(session),
                     MediaType = GetSessionNowPlayingType(session),
                     Overview = GetSessionNowPlayingOverview(session),
-                    StartedAtUtc = GetSessionStartedAt(session)
+                    StartedAtUtc = GetSessionStartedAt(session),
+                    PositionTicks = GetPlaybackPositionTicks(session),
+                    IsPaused = GetSessionPaused(session)
                 };
             }
 
@@ -1583,6 +1596,13 @@ namespace JellTogether.Plugin.Api
         {
             var playState = GetReflectionObject(session, "PlayState");
             return GetReflectionNumber(playState, "PositionTicks");
+        }
+
+        private static bool GetSessionPaused(SessionInfo session)
+        {
+            var playState = GetReflectionObject(session, "PlayState");
+            var value = GetReflectionObject(playState, "IsPaused") ?? GetReflectionObject(playState, "Paused");
+            return value is bool paused ? paused : bool.TryParse(value?.ToString(), out var parsed) && parsed;
         }
 
         private static DateTime? GetSessionStartedAt(SessionInfo session)
@@ -1658,6 +1678,8 @@ namespace JellTogether.Plugin.Api
             public string MediaType { get; set; } = string.Empty;
             public string Overview { get; set; } = string.Empty;
             public DateTime? StartedAtUtc { get; set; }
+            public long PositionTicks { get; set; }
+            public bool IsPaused { get; set; }
         }
 
         private async Task<StartWatchPartyResult> SendPlaybackToTargets(JellTogetherRoom room, JellTogether.Plugin.Services.QueueItem item, List<PlaybackTargetDto> targets, CancellationToken cancellationToken)

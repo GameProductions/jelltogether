@@ -12,6 +12,7 @@ class JellTogetherApp {
         this.currentRoom = null;
         this.currentUser = "Unknown";
         this.currentJellyfinMediaUserId = "";
+        this.currentJellyfinProfileImageUrl = "";
         this.lastUpdate = new Date(0).toISOString();
         this.isPolling = false;
         this.pollTimer = null;
@@ -411,6 +412,7 @@ class JellTogetherApp {
             const user = await this.fetchJson('/jelltogether/CurrentUser');
             this.currentUser = user.id || user.name || "Unknown";
             this.currentJellyfinMediaUserId = user.mediaUserId || user.mediaUserID || "";
+            this.currentJellyfinProfileImageUrl = user.profileImageUrl || "";
         } catch (e) {
             console.error("User Load Error:", e);
             this.showToast("Sign in to Jellyfin to use the companion.", 'error');
@@ -418,6 +420,15 @@ class JellTogetherApp {
 
         const display = document.getElementById('display-name');
         if (display) display.textContent = this.currentUser;
+        if (this.currentRoom) {
+            this.currentRoom.participantProfiles = this.currentRoom.participantProfiles || {};
+            this.currentRoom.participantProfiles[this.currentUser] = {
+                userId: this.currentUser,
+                displayName: this.currentUser,
+                mediaUserId: this.currentJellyfinMediaUserId || this.currentUser,
+                profileImageUrl: this.currentJellyfinProfileImageUrl || ''
+            };
+        }
         this.updateAuthAction();
     }
 
@@ -821,6 +832,8 @@ class JellTogetherApp {
             nowPlayingTitle: this.prop(room, 'nowPlayingTitle', null, ''),
             nowPlayingMediaId: this.prop(room, 'nowPlayingMediaId', null, ''),
             nowPlayingStartedAt: this.prop(room, 'nowPlayingStartedAt', null, null),
+            nowPlayingPositionTicks: this.prop(room, 'nowPlayingPositionTicks', null, 0),
+            nowPlayingPaused: this.prop(room, 'nowPlayingPaused', null, false) === true,
             lastUpdated: this.prop(room, 'lastUpdated', null, new Date(0).toISOString()),
             stats: this.prop(room, 'stats', null, {})
         };
@@ -995,7 +1008,7 @@ class JellTogetherApp {
         const title = room.nowPlayingTitle || activeItem?.title || '';
         const meta = [
             activeItem?.mediaType,
-            room.nowPlayingStartedAt ? `Started ${this.relativeTime(room.nowPlayingStartedAt)}` : ''
+            room.nowPlayingPaused ? 'Paused' : (room.nowPlayingStartedAt ? `Started ${this.relativeTime(room.nowPlayingStartedAt)}` : '')
         ].filter(Boolean).join(' • ');
 
         return {
@@ -1958,7 +1971,7 @@ class JellTogetherApp {
         const title = document.getElementById('now-playing-title');
         if (!title || !this.currentRoom) return;
         title.textContent = this.currentRoom.nowPlayingTitle
-            ? `Now playing: ${this.currentRoom.nowPlayingTitle}`
+            ? `Now playing: ${this.currentRoom.nowPlayingTitle}${this.currentRoom.nowPlayingPaused ? ' (paused)' : ''}`
             : 'No synced media selected';
 
         const screen = document.getElementById('theater-screen');
@@ -2091,13 +2104,15 @@ class JellTogetherApp {
             video.src = mediaSourceUrl;
             video.hidden = false;
             video.oncanplay = () => {
-                const currentSeconds = this.currentRoom?.nowPlayingStartedAt
-                    ? Math.max(0, (Date.now() - new Date(this.currentRoom.nowPlayingStartedAt).getTime()) / 1000)
-                    : 0;
+                const currentSeconds = this.roomPlaybackSeconds();
                 if (Number.isFinite(currentSeconds) && currentSeconds > 0) {
                     try { video.currentTime = currentSeconds; } catch (e) { /* ignore */ }
                 }
-                video.play?.().catch(() => {});
+                if (this.currentRoom?.nowPlayingPaused) {
+                    try { video.pause(); } catch (e) { /* ignore */ }
+                } else {
+                    video.play?.().catch(() => {});
+                }
             };
             video.onerror = () => this.stopTheaterVideo(video, screen);
             screen.classList.add('is-playing');
@@ -2121,11 +2136,24 @@ class JellTogetherApp {
         const token = this.getAccessToken();
         const mediaSourceId = item.mediaSourceId || '';
         const sourceParam = mediaSourceId ? `&mediaSourceId=${encodeURIComponent(mediaSourceId)}` : '';
-        const startTicks = this.currentRoom?.nowPlayingStartedAt
-            ? Math.max(0, Math.round((Date.now() - new Date(this.currentRoom.nowPlayingStartedAt).getTime()) * 10000))
-            : 0;
+        const startTicks = this.currentRoom?.nowPlayingPaused
+            ? Math.max(0, Math.round((this.currentRoom.nowPlayingPositionTicks || 0)))
+            : (this.currentRoom?.nowPlayingStartedAt
+                ? Math.max(0, Math.round((Date.now() - new Date(this.currentRoom.nowPlayingStartedAt).getTime()) * 10000))
+                : Math.max(0, Math.round(this.currentRoom?.nowPlayingPositionTicks || 0)));
         const startParam = startTicks > 0 ? `&startTimeTicks=${startTicks}` : '';
         return this.apiUrl(`/Videos/${encodeURIComponent(item.mediaId)}/stream?static=true${sourceParam}${startParam}${token ? `&api_key=${encodeURIComponent(token)}` : ''}`);
+    }
+
+    roomPlaybackSeconds() {
+        if (!this.currentRoom) return 0;
+        if (this.currentRoom.nowPlayingPaused) {
+            return Math.max(0, (this.currentRoom.nowPlayingPositionTicks || 0) / 10000000);
+        }
+        if (!this.currentRoom.nowPlayingStartedAt) {
+            return Math.max(0, (this.currentRoom.nowPlayingPositionTicks || 0) / 10000000);
+        }
+        return Math.max(0, (Date.now() - new Date(this.currentRoom.nowPlayingStartedAt).getTime()) / 1000);
     }
 
     async showPlaybackTargetsModal() {
@@ -3022,7 +3050,17 @@ class JellTogetherApp {
 
     participantProfile(userId) {
         const profiles = this.currentRoom?.participantProfiles || {};
-        return profiles[userId] || profiles[String(userId || '').toLowerCase()] || null;
+        const profile = profiles[userId] || profiles[String(userId || '').toLowerCase()] || null;
+        if (profile) return profile;
+        if (String(userId || '') === String(this.currentUser || '')) {
+            return {
+                userId: this.currentUser,
+                displayName: this.currentUser,
+                mediaUserId: this.currentJellyfinMediaUserId || this.currentUser,
+                profileImageUrl: this.currentJellyfinProfileImageUrl || ''
+            };
+        }
+        return null;
     }
 
     participantDisplayName(userId) {

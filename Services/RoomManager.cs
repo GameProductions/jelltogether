@@ -49,6 +49,8 @@ namespace JellTogether.Plugin.Services
         public string NowPlayingTitle { get; set; } = string.Empty;
         public string NowPlayingMediaId { get; set; } = string.Empty;
         public DateTime? NowPlayingStartedAt { get; set; }
+        public long NowPlayingPositionTicks { get; set; }
+        public bool NowPlayingPaused { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public DateTime LastUpdated { get; set; } = DateTime.UtcNow;
     }
@@ -1075,12 +1077,14 @@ namespace JellTogether.Plugin.Services
                 room.NowPlayingTitle = item.Title;
                 room.NowPlayingMediaId = item.MediaId;
                 room.NowPlayingStartedAt = DateTime.UtcNow;
+                room.NowPlayingPositionTicks = 0;
+                room.NowPlayingPaused = false;
                 room.ActivePlaybackSessionIds.Clear();
                 Touch(room);
             }
         }
 
-        public void SetRoomPlaybackState(string roomId, string title, string mediaId, DateTime? startedAtUtc)
+        public void SetRoomPlaybackState(string roomId, string title, string mediaId, DateTime? startedAtUtc, long positionTicks = 0, bool paused = false)
         {
             lock (_roomLock)
             {
@@ -1088,6 +1092,22 @@ namespace JellTogether.Plugin.Services
                 room.NowPlayingTitle = TrimToLimit(title, 256);
                 room.NowPlayingMediaId = TrimToLimit(mediaId, 64);
                 room.NowPlayingStartedAt = startedAtUtc;
+                room.NowPlayingPositionTicks = Math.Max(0, positionTicks);
+                room.NowPlayingPaused = paused;
+                Touch(room);
+            }
+        }
+
+        public void SetRoomPlaybackPosition(string roomId, long positionTicks, bool paused)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room)) return;
+                room.NowPlayingPositionTicks = Math.Max(0, positionTicks);
+                room.NowPlayingPaused = paused;
+                room.NowPlayingStartedAt = paused
+                    ? null
+                    : DateTime.UtcNow.Subtract(TimeSpan.FromTicks(room.NowPlayingPositionTicks));
                 Touch(room);
             }
         }
