@@ -20,8 +20,8 @@
         <section class="settings-section">
             <div class="settings-section-heading">
                 <div>
-                    <div class="section-label">Discord Stage</div>
-                    <p>Configure one server-wide Discord bot connection for watch party stage topic sync.</p>
+                    <div class="section-label">Discord Bot</div>
+                    <p>Configure the server-wide bot token used for room Stage sync and chat mirroring.</p>
                 </div>
             </div>
             <details class="settings-disclosure" open>
@@ -29,7 +29,7 @@
                 <div class="requirements-list">
                     <span>You must create your own Discord bot for JellTogether to use this feature.</span>
                     <span>The bot must be invited to the Discord server that contains the Stage channel.</span>
-                    <span>The bot token must belong to that bot and be saved here before channels can be discovered.</span>
+                    <span>The bot token must belong to that bot and be saved here before rooms can discover channels.</span>
                     <span>The bot needs permission to view channels, read message history, send messages, and manage the selected Stage channel topic.</span>
                     <span>Only Discord Stage channels are eligible for sync.</span>
                     <span>Treat the bot token like a password. Tokens entered here are stored in Jellyfin plugin configuration.</span>
@@ -45,17 +45,10 @@
                     <span>Use the generated invite URL to add the bot to the server that owns your Stage channel.</span>
                     <span>In Discord, make sure the bot role can view the Stage channel, read and send messages there, and manage that channel.</span>
                     <span>For secure server-side storage, set the JELLTOGETHER_DISCORD_BOT_TOKEN environment variable and restart Jellyfin.</span>
-                    <span>Save settings, then use the Stage Channel picker to select an eligible Stage channel.</span>
                 </div>
             </details>
-            <label class="field-label" for="settings-discord-stage-picker">Stage Channel</label>
-            <input type="hidden" id="settings-discord-stage-id">
-            <div id="settings-discord-stage-control" class="stage-channel-control">
-                <input type="text" id="settings-discord-stage-picker" class="glass-input" placeholder="Discord stage channel ID">
-            </div>
             <label class="field-label" for="settings-discord-bot-token">Bot Token</label>
             <input type="password" id="settings-discord-bot-token" class="glass-input" placeholder="Leave blank to keep the saved token">
-            <button type="button" id="settings-test-discord-stage" class="secondary-command compact settings-inline-command" onclick="settingsApp.testDiscordStage()">Test Discord Connection</button>
             <label class="settings-option-card compact-option">
                 <input type="checkbox" id="settings-discord-chat-sync">
                 <span>

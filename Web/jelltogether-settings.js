@@ -2,9 +2,6 @@ class JellTogetherSettingsApp {
     constructor() {
         this.settings = null;
         this.libraries = [];
-        this.discordStageChannels = [];
-        this.discordStagePickerMode = 'manual';
-        this.discordStageId = '';
         this.init();
     }
 
@@ -22,7 +19,6 @@ class JellTogetherSettingsApp {
 
         document.getElementById('settings-discord-clear-token')?.addEventListener('change', () => {
             this.updateDiscordTokenStatus();
-            this.renderDiscordStageControl();
         });
     }
 
@@ -67,14 +63,11 @@ class JellTogetherSettingsApp {
             document.getElementById('settings-android-tv-targets').checked = this.settings.allowAndroidTvPlaybackTargets !== false;
             document.getElementById('settings-persist-history').checked = this.settings.persistRoomHistory !== false;
             document.getElementById('settings-invite-hours').value = this.settings.defaultInviteExpirationHours ?? 24;
-            document.getElementById('settings-discord-stage-id').value = this.settings.discordStageId || '';
-            this.discordStageId = this.settings.discordStageId || '';
             document.getElementById('settings-discord-chat-sync').checked = this.settings.enableDiscordStageChatSync !== false;
             document.getElementById('settings-discord-bot-token').value = '';
             document.getElementById('settings-discord-clear-token').checked = false;
             this.updateDiscordTokenStatus();
             this.updateDiscordTokenControls();
-            await this.loadDiscordStageChannels();
             this.updateCompanionPill();
         } catch (e) {
             console.error('JellTogether settings load failed:', e);
@@ -214,7 +207,6 @@ class JellTogetherSettingsApp {
             .map(input => input.value)
             .filter(Boolean);
         const publicJellyfinUrl = document.getElementById('settings-public-jellyfin-url')?.value?.trim() || '';
-        const discordStageId = this.selectedDiscordStageId() || this.settings?.discordStageId || '';
         const payload = {
             publicJellyfinUrl,
             publicCompanionUrl: this.generatedCompanionUrl(),
@@ -225,7 +217,6 @@ class JellTogetherSettingsApp {
             allowAndroidTvPlaybackTargets: document.getElementById('settings-android-tv-targets')?.checked === true,
             persistRoomHistory: document.getElementById('settings-persist-history')?.checked === true,
             defaultInviteExpirationHours: parseInt(document.getElementById('settings-invite-hours')?.value || '24', 10),
-            discordStageId,
             enableDiscordStageChatSync: document.getElementById('settings-discord-chat-sync')?.checked !== false,
             discordBotToken: this.isDiscordEnvironmentTokenActive() ? '' : (document.getElementById('settings-discord-bot-token')?.value?.trim() || ''),
             clearDiscordBotToken: this.isDiscordEnvironmentTokenActive() ? false : document.getElementById('settings-discord-clear-token')?.checked === true
@@ -243,12 +234,10 @@ class JellTogetherSettingsApp {
                 ...payload,
                 hasDiscordBotToken: this.isDiscordEnvironmentTokenActive() || (payload.clearDiscordBotToken ? false : Boolean(payload.discordBotToken || this.settings?.hasDiscordBotToken))
             };
-            this.discordStageId = discordStageId;
             document.getElementById('settings-discord-bot-token').value = '';
             document.getElementById('settings-discord-clear-token').checked = false;
             this.updateDiscordTokenStatus();
             this.updateDiscordTokenControls();
-            await this.loadDiscordStageChannels();
             await this.load();
             this.toast('JellTogether settings saved.', 'success');
         } catch (e) {
@@ -284,166 +273,9 @@ class JellTogetherSettingsApp {
         return this.settings?.discordBotTokenSource === 'environment';
     }
 
-    async loadDiscordStageChannels() {
-        if (!this.settings?.hasDiscordBotToken || document.getElementById('settings-discord-clear-token')?.checked === true) {
-            this.discordStageChannels = [];
-            this.renderDiscordStageControl();
-            return;
-        }
-
-        const container = document.getElementById('settings-discord-stage-control');
-        if (container) container.replaceChildren(this.textEl('div', 'Loading eligible Discord Stage channels...', 'loading'));
-
-        try {
-            const result = await this.fetchJson('/jelltogether/Discord/StageChannels');
-            const channels = this.discordProp(result, 'channels', []);
-            this.discordStageChannels = Array.isArray(channels)
-                ? channels.map(channel => this.normalizeDiscordStageChannel(channel)).filter(channel => channel.id)
-                : [];
-            this.renderDiscordStageControl();
-        } catch (e) {
-            console.error('Discord Stage channel load failed:', e);
-            this.discordStageChannels = [];
-            this.renderDiscordStageControl('Saved Discord bot token could not load Stage channels. Check the token and bot permissions.');
-        }
-    }
-
-    renderDiscordStageControl(errorMessage = '') {
-        const container = document.getElementById('settings-discord-stage-control');
-        const hidden = document.getElementById('settings-discord-stage-id');
-        if (!container || !hidden) return;
-
-        container.replaceChildren();
-        const shouldUseManual = !this.settings?.hasDiscordBotToken || document.getElementById('settings-discord-clear-token')?.checked === true;
-        if (shouldUseManual) {
-            this.discordStagePickerMode = 'manual';
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.id = 'settings-discord-stage-picker';
-            input.className = 'glass-input';
-            input.placeholder = 'Discord stage channel ID';
-            input.value = hidden.value || this.settings?.discordStageId || '';
-            input.addEventListener('input', () => {
-                hidden.value = input.value.trim();
-                this.discordStageId = hidden.value;
-                this.updateDiscordStageActionState();
-            });
-            container.appendChild(input);
-            container.appendChild(this.textEl('div', 'Save a bot token to search eligible Stage channels automatically.', 'settings-note'));
-            this.updateDiscordStageActionState();
-            return;
-        }
-
-        this.discordStagePickerMode = 'search';
-        if (this.settings?.discordStageId) hidden.value = this.settings.discordStageId;
-
-        const selected = this.discordStageChannels.find(channel => channel.id === hidden.value) || null;
-        const search = document.createElement('input');
-        search.type = 'search';
-        search.id = 'settings-discord-stage-picker';
-        search.className = 'glass-input';
-        search.placeholder = this.discordStageChannels.length ? 'Search Discord Stage channels' : 'No eligible Stage channels found';
-        search.value = selected ? this.stageChannelLabel(selected) : '';
-
-        const actions = document.createElement('div');
-        actions.className = 'stage-channel-actions';
-        const refresh = document.createElement('button');
-        refresh.type = 'button';
-        refresh.className = 'secondary-command compact';
-        refresh.textContent = 'Refresh';
-        refresh.onclick = () => this.loadDiscordStageChannels();
-        actions.appendChild(refresh);
-
-        const results = document.createElement('div');
-        results.className = 'stage-channel-results';
-        const selectedPill = document.createElement('button');
-        selectedPill.type = 'button';
-        selectedPill.className = 'copy-pill stage-channel-pill';
-        selectedPill.textContent = selected ? `Selected: ${this.stageChannelLabel(selected)}` : 'No Stage channel selected';
-        selectedPill.title = 'The saved Discord Stage channel ID is stored here.';
-        selectedPill.onclick = () => {
-            if (selected) this.toast(`Selected ${this.stageChannelLabel(selected)}`, 'info');
-        };
-
-        const renderResults = () => {
-            const query = search.value.trim().toLowerCase();
-            const matches = this.discordStageChannels
-                .filter(channel => this.stageChannelLabel(channel).toLowerCase().includes(query) || channel.id.includes(query))
-                .slice(0, 12);
-
-            results.replaceChildren();
-            if (!matches.length) {
-                results.appendChild(this.textEl('div', this.discordStageChannels.length ? 'No matching Stage channels.' : 'No eligible Stage channels found for this bot.', 'settings-note'));
-                return;
-            }
-
-            matches.forEach(channel => {
-                const button = document.createElement('button');
-                button.type = 'button';
-                button.className = `stage-channel-option${channel.id === hidden.value ? ' is-selected' : ''}`;
-                button.appendChild(this.textEl('strong', channel.name || 'Stage channel'));
-                button.appendChild(this.textEl('em', `${channel.guildName || 'Discord server'} · ${channel.id}`));
-                button.onclick = () => {
-                    hidden.value = channel.id;
-                    search.value = this.stageChannelLabel(channel);
-                    this.discordStageId = channel.id;
-                    selectedPill.textContent = `Selected: ${this.stageChannelLabel(channel)}`;
-                    renderResults();
-                    this.updateDiscordStageActionState();
-                };
-                results.appendChild(button);
-            });
-        };
-
-        search.addEventListener('input', renderResults);
-        search.addEventListener('focus', renderResults);
-        container.appendChild(search);
-        container.appendChild(actions);
-        container.appendChild(selectedPill);
-        if (errorMessage) container.appendChild(this.textEl('div', errorMessage, 'settings-note'));
-        container.appendChild(results);
-        container.appendChild(this.manualStageIdDetails(hidden));
-        renderResults();
-        this.updateDiscordStageActionState();
-    }
-
-    manualStageIdDetails(hidden) {
-        const details = document.createElement('details');
-        details.className = 'settings-disclosure compact-disclosure';
-        const summary = document.createElement('summary');
-        summary.textContent = 'Enter Stage Channel ID Manually';
-        details.appendChild(summary);
-
-        const body = document.createElement('div');
-        body.className = 'manual-stage-entry';
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.className = 'glass-input';
-        input.placeholder = 'Discord stage channel ID';
-        input.value = hidden.value || this.settings?.discordStageId || '';
-        input.addEventListener('input', () => hidden.value = input.value.trim());
-        body.appendChild(input);
-        body.appendChild(this.textEl('div', 'Use this when Discord channel discovery cannot list a channel the bot can still manage.', 'settings-note'));
-        details.appendChild(body);
-        return details;
-    }
-
-    selectedDiscordStageId() {
-        const hidden = document.getElementById('settings-discord-stage-id');
-        const picker = document.getElementById('settings-discord-stage-picker');
-        if (this.discordStagePickerMode === 'manual') return picker?.value?.trim() || '';
-        return hidden?.value?.trim() || '';
-    }
-
-    updateDiscordStageActionState() {
-        const stageId = (this.settings?.discordStageId || this.discordStageId || '').trim();
-        const testButton = document.getElementById('settings-test-discord-stage');
-        if (testButton) testButton.disabled = !stageId;
-    }
-
     async testDiscordStage() {
         const payload = {
-            discordStageId: this.selectedDiscordStageId(),
+            discordStageId: this.currentRoom?.discordStageId || '',
             discordBotToken: document.getElementById('settings-discord-bot-token')?.value?.trim() || ''
         };
 

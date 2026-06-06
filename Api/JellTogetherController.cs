@@ -56,10 +56,14 @@ namespace JellTogether.Plugin.Api
         public bool AllowAndroidTvPlaybackTargets { get; set; } = true;
         public bool PersistRoomHistory { get; set; } = true;
         public int DefaultInviteExpirationHours { get; set; } = 24;
-        public string DiscordStageId { get; set; } = string.Empty;
         public string DiscordBotToken { get; set; } = string.Empty;
         public bool ClearDiscordBotToken { get; set; } = false;
         public bool EnableDiscordStageChatSync { get; set; } = true;
+    }
+
+    public class RoomDiscordStageRequest
+    {
+        public string DiscordStageId { get; set; } = string.Empty;
     }
 
     public class DiscordStageTestRequest
@@ -224,7 +228,6 @@ namespace JellTogether.Plugin.Api
                 allowAndroidTvPlaybackTargets = config?.AllowAndroidTvPlaybackTargets ?? true,
                 persistRoomHistory = config?.PersistRoomHistory ?? true,
                 defaultInviteExpirationHours = config?.DefaultInviteExpirationHours ?? 24,
-                discordStageId = config?.DiscordStageId ?? string.Empty,
                 hasDiscordBotToken = !string.IsNullOrWhiteSpace(EffectiveDiscordBotToken(config)),
                 pluginVersion = PluginVersion(),
                 changelog = ChangelogEntries(),
@@ -274,7 +277,6 @@ namespace JellTogether.Plugin.Api
                 allowAndroidTvPlaybackTargets = config?.AllowAndroidTvPlaybackTargets ?? true,
                 persistRoomHistory = config?.PersistRoomHistory ?? true,
                 defaultInviteExpirationHours = config?.DefaultInviteExpirationHours ?? 24,
-                discordStageId = config?.DiscordStageId ?? string.Empty,
                 hasDiscordBotToken = !string.IsNullOrWhiteSpace(EffectiveDiscordBotToken(config)),
                 discordBotTokenSource = IsDiscordBotTokenFromEnvironment() ? "environment" : "configuration",
                 enableDiscordStageChatSync = config?.EnableDiscordStageChatSync ?? true,
@@ -316,7 +318,6 @@ namespace JellTogether.Plugin.Api
             config.AllowAndroidTvPlaybackTargets = request.AllowAndroidTvPlaybackTargets;
             config.PersistRoomHistory = request.PersistRoomHistory;
             config.DefaultInviteExpirationHours = Math.Clamp(request.DefaultInviteExpirationHours, 0, 24 * 30);
-            config.DiscordStageId = TrimToLimit(request.DiscordStageId, 64);
             config.EnableDiscordStageChatSync = request.EnableDiscordStageChatSync;
             if (IsDiscordBotTokenFromEnvironment())
             {
@@ -1113,7 +1114,7 @@ namespace JellTogether.Plugin.Api
                 roomId,
                 message,
                 EffectiveDiscordBotToken(config),
-                config?.DiscordStageId,
+                _roomManager.GetRoom(roomId)?.DiscordStageId,
                 config?.EnableDiscordStageChatSync ?? true);
             return Ok();
         }
@@ -1149,9 +1150,7 @@ namespace JellTogether.Plugin.Api
             if (!CanManage(room)) return Forbid();
 
             var config = Plugin.Instance?.Configuration;
-            var stageId = !string.IsNullOrWhiteSpace(config?.DiscordStageId)
-                ? config?.DiscordStageId
-                : room.DiscordStageId;
+            var stageId = room.DiscordStageId;
             var botToken = EffectiveDiscordBotToken(config);
             var updated = await _roomManager.UpdateDiscordStage(
                 roomId,
@@ -1165,6 +1164,17 @@ namespace JellTogether.Plugin.Api
                 Plugin.Instance.SaveConfiguration(config);
             }
             return updated.Success ? Ok() : BadRequest(string.IsNullOrWhiteSpace(updated.Error) ? "Discord Stage sync failed." : updated.Error);
+        }
+
+        [HttpPost("Rooms/{roomId}/Discord/Stage")]
+        public ActionResult SetRoomDiscordStage(string roomId, [FromBody] RoomDiscordStageRequest request)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanManage(room)) return Forbid();
+            if (request == null) return BadRequest("Stage payload is required.");
+
+            return _roomManager.SetRoomDiscordStage(roomId, request.DiscordStageId) ? Ok() : BadRequest("Unable to save Discord Stage channel.");
         }
 
         private bool CanView(JellTogetherRoom room)
@@ -1246,18 +1256,10 @@ namespace JellTogether.Plugin.Api
         private async Task PullDiscordStageChat(string roomId)
         {
             var config = Plugin.Instance?.Configuration;
-            var configuredStageId = TrimToLimit(config?.DiscordStageId ?? string.Empty, 64);
             var room = _roomManager.GetRoom(roomId);
             var roomStageId = TrimToLimit(room?.DiscordStageId ?? string.Empty, 64);
-            var stageId = !string.IsNullOrWhiteSpace(configuredStageId) ? configuredStageId : roomStageId;
+            var stageId = roomStageId;
             if (string.IsNullOrWhiteSpace(stageId)) return;
-
-            if (!string.IsNullOrWhiteSpace(configuredStageId) &&
-                !string.IsNullOrWhiteSpace(config?.ActiveDiscordStageRoomId) &&
-                !string.Equals(config.ActiveDiscordStageRoomId, roomId, StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
 
             await _roomManager.PullDiscordStageMessages(
                 roomId,
@@ -1451,7 +1453,7 @@ namespace JellTogether.Plugin.Api
         {
             var config = Plugin.Instance?.Configuration;
             if (config == null) return;
-            var stageId = !string.IsNullOrWhiteSpace(config.DiscordStageId) ? config.DiscordStageId : _roomManager.GetRoom(roomId)?.DiscordStageId;
+            var stageId = _roomManager.GetRoom(roomId)?.DiscordStageId;
             if (string.IsNullOrWhiteSpace(stageId)) return;
 
             var result = await _roomManager.UpdateDiscordStage(

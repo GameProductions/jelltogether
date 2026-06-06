@@ -149,6 +149,11 @@
                         <button id="btn-sync-discord-stage" class="secondary-command compact" onclick="app.syncDiscordStage()">Sync Discord</button>
                         <button class="danger-command compact" onclick="app.deleteRoom()">Delete Room</button>
                     </div>
+                    <div class="room-note" id="room-discord-stage-note">No Discord Stage channel selected for this room.</div>
+                    <div class="room-inline-actions">
+                        <button id="btn-room-discord-stage" class="secondary-command compact" onclick="app.showRoomDiscordStageModal()">Set Room Stage</button>
+                        <button id="btn-room-discord-stage-test" class="secondary-command compact" onclick="app.syncDiscordStage()">Test Sync</button>
+                    </div>
                     <div class="room-note">Edit the room name directly in the page title.</div>
                     <div class="room-note">Use Up Next to search allowed Jellyfin libraries and start playback on active sessions.</div>
                 </div>

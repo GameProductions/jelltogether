@@ -1014,6 +1014,12 @@ h1 {
     width: 100%;
 }
 
+.room-inline-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
 .room-note {
     color: var(--text-dim);
     font-size: 0.78rem;

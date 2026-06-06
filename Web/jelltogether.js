@@ -3,7 +3,6 @@ class JellTogetherApp {
         this.serverUrl = this.initialServerUrl();
         this.publicJellyfinUrl = "";
         this.publicCompanionOrigin = "";
-        this.discordStageId = "";
         this.canSavePublicAccessSettings = false;
         this.enabledLibraryIds = [];
         this.allowQueueVotingByDefault = true;
@@ -136,7 +135,6 @@ class JellTogetherApp {
             this.enabledLibraryIds = settings.enabledLibraryIds || [];
             this.allowQueueVotingByDefault = settings.allowQueueVotingByDefault !== false;
             this.allowParticipantQueueAdds = settings.allowParticipantQueueAdds !== false;
-            this.discordStageId = settings.discordStageId || "";
             this.pluginVersion = settings.pluginVersion || this.pluginVersion;
             this.changelog = Array.isArray(settings.changelog) ? settings.changelog : [];
             this.canSavePublicAccessSettings = settings.canSavePublicAccessSettings === true;
@@ -155,6 +153,7 @@ class JellTogetherApp {
         this.updateVersionLabels();
         this.updateServerIndicator();
         this.updateDiscordStageActionState();
+        this.updateRoomDiscordStageUI();
         await this.updateTheaterPlaybackSurface();
     }
 
@@ -814,6 +813,7 @@ class JellTogetherApp {
             allowQueueVoting: this.prop(room, 'allowQueueVoting', null, true),
             requireJoinApproval: this.prop(room, 'requireJoinApproval', null, false),
             isJoinLocked: this.prop(room, 'isJoinLocked', null, false),
+            discordStageId: this.prop(room, 'discordStageId', null, ''),
             pendingParticipantIds: this.prop(room, 'pendingParticipantIds', null, []),
             bannedParticipantIds: this.prop(room, 'bannedParticipantIds', null, []),
             nowPlayingTitle: this.prop(room, 'nowPlayingTitle', null, ''),
@@ -1175,6 +1175,8 @@ class JellTogetherApp {
             controlBtn.classList.toggle('active', !this.currentRoom.isHostOnlyControl);
             controlBtn.classList.toggle('warning', this.currentRoom.isHostOnlyControl);
         }
+
+        this.updateRoomDiscordStageUI();
 
         const approvalBtn = document.getElementById('btn-toggle-join-approval');
         if (approvalBtn) {
@@ -3232,8 +3234,9 @@ class JellTogetherApp {
     }
 
     async syncDiscordStage(titleOverride = null) {
-        if (!this.discordStageId) {
-            this.showToast('Set a Discord Stage channel in global settings first.', 'error');
+        if (!this.currentRoom?.discordStageId) {
+            this.showToast('Set a Discord Stage channel for this room first.', 'error');
+            await this.showRoomDiscordStageModal();
             return;
         }
 
@@ -3263,7 +3266,111 @@ class JellTogetherApp {
 
     updateDiscordStageActionState() {
         const button = document.getElementById('btn-sync-discord-stage');
-        if (button) button.disabled = !this.discordStageId;
+        if (button) button.disabled = !this.currentRoom?.discordStageId;
+    }
+
+    updateRoomDiscordStageUI() {
+        const note = document.getElementById('room-discord-stage-note');
+        const setBtn = document.getElementById('btn-room-discord-stage');
+        const syncBtn = document.getElementById('btn-sync-discord-stage');
+        const stageId = this.currentRoom?.discordStageId || '';
+        if (note) note.textContent = stageId ? `Room Discord Stage: ${stageId}` : 'No Discord Stage channel selected for this room.';
+        if (setBtn) setBtn.textContent = stageId ? 'Change Room Stage' : 'Set Room Stage';
+        if (syncBtn) syncBtn.disabled = !stageId;
+    }
+
+    async showRoomDiscordStageModal() {
+        if (!this.currentRoom?.id) return;
+        this.hideModal();
+
+        const overlay = document.createElement('div');
+        overlay.id = 'app-modal-overlay';
+        overlay.className = 'app-modal-overlay';
+        const modal = document.createElement('div');
+        modal.id = 'app-modal';
+        modal.className = 'app-modal glass-card playback-modal';
+        modal.appendChild(this.textEl('h3', 'Room Discord Stage'));
+        modal.appendChild(this.textEl('p', 'Choose the Stage channel this room should sync to.', 'modal-subtitle'));
+        modal.appendChild(this.textEl('div', 'Loading eligible Discord Stage channels...', 'loading'));
+        overlay.appendChild(modal);
+        overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
+        document.body.appendChild(overlay);
+
+        try {
+            const result = await this.fetchJson('/jelltogether/Discord/StageChannels');
+            const channels = Array.isArray(result?.channels) ? result.channels.map(channel => this.normalizeDiscordStageChannel(channel)).filter(channel => channel.id) : [];
+            this.renderRoomDiscordStageModal(modal, channels);
+        } catch (e) {
+            console.error('Room Discord Stage load failed:', e);
+            modal.replaceChildren();
+            modal.appendChild(this.textEl('h3', 'Room Discord Stage'));
+            modal.appendChild(this.textEl('p', 'Could not load eligible Stage channels. Check the bot token and permissions.', 'modal-subtitle'));
+            modal.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
+        }
+    }
+
+    renderRoomDiscordStageModal(modal, channels) {
+        this.clear(modal);
+        modal.appendChild(this.textEl('h3', 'Room Discord Stage'));
+        modal.appendChild(this.textEl('p', 'Choose the Stage channel this room should sync to.', 'modal-subtitle'));
+
+        const search = document.createElement('input');
+        search.type = 'search';
+        search.className = 'glass-input';
+        search.placeholder = channels.length ? 'Search Discord Stage channels' : 'No eligible Stage channels found';
+        modal.appendChild(search);
+
+        const list = document.createElement('div');
+        list.className = 'stage-channel-results';
+        modal.appendChild(list);
+
+        const actions = document.createElement('div');
+        actions.className = 'split-actions';
+        actions.appendChild(this.button('Clear Room Stage', 'secondary-command', async () => {
+            await this.saveRoomDiscordStage('');
+        }));
+        actions.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
+        modal.appendChild(actions);
+
+        const render = () => {
+            const query = search.value.trim().toLowerCase();
+            const matches = channels.filter(channel => this.stageChannelLabel(channel).toLowerCase().includes(query) || channel.id.includes(query)).slice(0, 12);
+            list.replaceChildren();
+            if (!matches.length) {
+                list.appendChild(this.textEl('div', channels.length ? 'No matching Stage channels.' : 'No eligible Stage channels found for this bot.', 'settings-note'));
+                return;
+            }
+
+            matches.forEach(channel => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = `stage-channel-option${channel.id === this.currentRoom?.discordStageId ? ' is-selected' : ''}`;
+                button.appendChild(this.textEl('strong', channel.name || 'Stage channel'));
+                button.appendChild(this.textEl('em', `${channel.guildName || 'Discord server'} · ${channel.id}`));
+                button.onclick = async () => {
+                    await this.saveRoomDiscordStage(channel.id);
+                    this.hideModal();
+                };
+                list.appendChild(button);
+            });
+        };
+
+        search.addEventListener('input', render);
+        render();
+    }
+
+    async saveRoomDiscordStage(stageId) {
+        if (!this.currentRoom?.id) return;
+        try {
+            const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Discord/Stage`, { discordStageId: stageId || '' });
+            if (!resp.ok) throw new Error(`Save room stage failed with ${resp.status}`);
+            this.currentRoom.discordStageId = stageId || '';
+            await this.refreshRoom();
+            this.showToast(stageId ? 'Room Discord Stage saved.' : 'Room Discord Stage cleared.', 'success');
+        } catch (e) {
+            console.error('Room Discord Stage save failed:', e);
+            this.showToast('Could not save the room Discord Stage.', 'error');
+        }
     }
 
     async sendMessage() {
