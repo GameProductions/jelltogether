@@ -1772,7 +1772,7 @@ namespace JellTogether.Plugin.Api
             var resourceBase = $"{basePath}/web/configurationpage?name=";
             html = html.Replace("configurationpage?name=", resourceBase, StringComparison.Ordinal);
 
-            Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; connect-src 'self' http: https: ws: wss:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'";
+            Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: http: https:; media-src 'self' blob: http: https:; connect-src 'self' http: https: ws: wss:; manifest-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'self'";
             Response.Headers["Referrer-Policy"] = "no-referrer";
             Response.Headers["X-Content-Type-Options"] = "nosniff";
 
