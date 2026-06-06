@@ -22,6 +22,14 @@ class JellTogetherApp {
         this.xrSupported = false;
         this.xrDomOverlaySupported = false;
         this.xrMode = 'fallback';
+        this.xrCanvas = null;
+        this.xrGl = null;
+        this.xrProgram = null;
+        this.xrTexture = null;
+        this.xrGeometryBuffer = null;
+        this.xrFrameHandle = 0;
+        this.xrRefSpace = null;
+        this.xrLayer = null;
         this.theaterVideoItem = null;
         this.theaterVideoUrl = '';
         this.lang = 'en';
@@ -2945,6 +2953,20 @@ class JellTogetherApp {
     }
 
     async enterImmersiveMode() {
+        try {
+            if (window.isSecureContext && navigator.xr?.requestSession && this.xrSupported) {
+                const session = await navigator.xr.requestSession('immersive-vr', {
+                    requiredFeatures: ['local-floor'],
+                    optionalFeatures: ['dom-overlay', 'bounded-floor', 'hand-tracking'],
+                    domOverlay: document.body ? { root: document.body } : undefined
+                });
+                await this.startWebXrSession(session);
+                return;
+            }
+        } catch (e) {
+            console.warn('WebXR immersive session failed, falling back to fullscreen theater:', e);
+        }
+
         this.setImmersiveMode(true, 'fallback');
         try {
             if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
@@ -2964,6 +2986,7 @@ class JellTogetherApp {
             }
             this.xrSession = null;
         }
+        this.stopWebXrSession();
 
         if (document.fullscreenElement && document.exitFullscreen) {
             try {
@@ -2974,6 +2997,226 @@ class JellTogetherApp {
         }
 
         this.setImmersiveMode(false);
+    }
+
+    async startWebXrSession(session) {
+        this.xrSession = session;
+        this.xrMode = 'webxr';
+        this.setImmersiveMode(true, 'webxr');
+
+        const canvas = document.createElement('canvas');
+        canvas.width = 2048;
+        canvas.height = 1024;
+        this.xrCanvas = canvas;
+        const gl = canvas.getContext('webgl', { xrCompatible: true, alpha: false, antialias: true });
+        if (!gl) throw new Error('WebGL is required for WebXR playback.');
+        this.xrGl = gl;
+        await gl.makeXRCompatible?.();
+
+        this.xrLayer = new XRWebGLLayer(session, gl);
+        session.updateRenderState({ baseLayer: this.xrLayer });
+        this.xrRefSpace = await session.requestReferenceSpace('local-floor');
+        session.addEventListener('end', () => {
+            this.stopWebXrSession();
+            if (this.isVR) this.setImmersiveMode(false);
+        });
+
+        this.initXrScene(gl);
+        this.xrFrameHandle = session.requestAnimationFrame((time, frame) => this.renderXrFrame(time, frame));
+    }
+
+    stopWebXrSession() {
+        if (this.xrFrameHandle && this.xrSession?.cancelAnimationFrame) {
+            try { this.xrSession.cancelAnimationFrame(this.xrFrameHandle); } catch (e) { /* ignore */ }
+        }
+        this.xrFrameHandle = 0;
+        this.xrRefSpace = null;
+        this.xrLayer = null;
+        this.xrTexture = null;
+        this.xrGeometryBuffer = null;
+        this.xrProgram = null;
+        this.xrGl = null;
+        this.xrCanvas = null;
+    }
+
+    initXrScene(gl) {
+        const vertexSrc = `
+            attribute vec3 a_position;
+            attribute vec2 a_uv;
+            uniform mat4 u_matrix;
+            varying vec2 v_uv;
+            void main() {
+                v_uv = a_uv;
+                gl_Position = u_matrix * vec4(a_position, 1.0);
+            }
+        `;
+        const fragmentSrc = `
+            precision mediump float;
+            varying vec2 v_uv;
+            uniform sampler2D u_texture;
+            uniform float u_hasVideo;
+            void main() {
+                vec4 tex = texture2D(u_texture, v_uv);
+                vec3 backdrop = vec3(0.02, 0.03, 0.06);
+                vec3 color = mix(backdrop, tex.rgb, u_hasVideo);
+                gl_FragColor = vec4(color, 1.0);
+            }
+        `;
+        const vertexShader = this.compileShader(gl, gl.VERTEX_SHADER, vertexSrc);
+        const fragmentShader = this.compileShader(gl, gl.FRAGMENT_SHADER, fragmentSrc);
+        const program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+        gl.linkProgram(program);
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            throw new Error(gl.getProgramInfoLog(program) || 'Failed to link XR program.');
+        }
+        this.xrProgram = program;
+
+        const vertices = new Float32Array([
+            -1, -0.5625, 0, 0, 1,
+             1, -0.5625, 0, 1, 1,
+            -1,  0.5625, 0, 0, 0,
+             1,  0.5625, 0, 1, 0
+        ]);
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices, gl.STATIC_DRAW);
+        this.xrGeometryBuffer = buffer;
+
+        const texture = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([5, 7, 12, 255]));
+        this.xrTexture = texture;
+    }
+
+    compileShader(gl, type, source) {
+        const shader = gl.createShader(type);
+        gl.shaderSource(shader, source);
+        gl.compileShader(shader);
+        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            throw new Error(gl.getShaderInfoLog(shader) || 'Shader compile failed.');
+        }
+        return shader;
+    }
+
+    renderXrFrame(time, frame) {
+        if (!this.xrSession || !this.xrGl || !this.xrLayer || !this.xrProgram || !this.xrRefSpace) return;
+        const gl = this.xrGl;
+        const session = this.xrSession;
+        const pose = frame.getViewerPose(this.xrRefSpace);
+        session.requestAnimationFrame((nextTime, nextFrame) => this.renderXrFrame(nextTime, nextFrame));
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, this.xrLayer.framebuffer);
+        gl.enable(gl.DEPTH_TEST);
+        gl.clearColor(0.02, 0.03, 0.06, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        if (!pose) return;
+
+        const video = document.getElementById('theater-video');
+        const hasVideo = Boolean(video && !video.hidden && video.readyState >= 2);
+        if (hasVideo && this.xrTexture && video.videoWidth > 0 && video.videoHeight > 0) {
+            gl.bindTexture(gl.TEXTURE_2D, this.xrTexture);
+            try {
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, video);
+            } catch (e) {
+                console.warn('XR video texture update failed:', e);
+            }
+        }
+
+        gl.useProgram(this.xrProgram);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.xrGeometryBuffer);
+        const positionLocation = gl.getAttribLocation(this.xrProgram, 'a_position');
+        const uvLocation = gl.getAttribLocation(this.xrProgram, 'a_uv');
+        gl.enableVertexAttribArray(positionLocation);
+        gl.vertexAttribPointer(positionLocation, 3, gl.FLOAT, false, 20, 0);
+        gl.enableVertexAttribArray(uvLocation);
+        gl.vertexAttribPointer(uvLocation, 2, gl.FLOAT, false, 20, 12);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.xrTexture);
+        gl.uniform1i(gl.getUniformLocation(this.xrProgram, 'u_texture'), 0);
+        gl.uniform1f(gl.getUniformLocation(this.xrProgram, 'u_hasVideo'), hasVideo ? 1 : 0);
+
+        for (const view of pose.views) {
+            const viewport = this.xrLayer.getViewport(view);
+            gl.viewport(viewport.x, viewport.y, viewport.width, viewport.height);
+
+            const viewMatrix = this.inverseMatrix4(view.transform.matrix);
+            const modelMatrix = this.multiplyMatrix4(this.translateMatrix4(0, -0.15, -2.6), this.scaleMatrix4(this.videoAspectScale()));
+            const mvp = this.multiplyMatrix4(view.projectionMatrix, this.multiplyMatrix4(viewMatrix, modelMatrix));
+            gl.uniformMatrix4fv(gl.getUniformLocation(this.xrProgram, 'u_matrix'), false, mvp);
+            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+        }
+    }
+
+    videoAspectScale() {
+        const video = document.getElementById('theater-video');
+        const aspect = video?.videoWidth && video?.videoHeight ? video.videoWidth / video.videoHeight : 16 / 9;
+        return [1.8 * Math.min(1, aspect), 1.0, 1];
+    }
+
+    translateMatrix4(x, y, z) {
+        return new Float32Array([
+            1, 0, 0, 0,
+            0, 1, 0, 0,
+            0, 0, 1, 0,
+            x, y, z, 1
+        ]);
+    }
+
+    scaleMatrix4(scale) {
+        const [x, y, z] = scale;
+        return new Float32Array([
+            x, 0, 0, 0,
+            0, y, 0, 0,
+            0, 0, z, 0,
+            0, 0, 0, 1
+        ]);
+    }
+
+    multiplyMatrix4(a, b) {
+        const out = new Float32Array(16);
+        for (let row = 0; row < 4; row++) {
+            for (let col = 0; col < 4; col++) {
+                let sum = 0;
+                for (let i = 0; i < 4; i++) {
+                    sum += a[row * 4 + i] * b[i * 4 + col];
+                }
+                out[row * 4 + col] = sum;
+            }
+        }
+        return out;
+    }
+
+    inverseMatrix4(m) {
+        const inv = new Float32Array(16);
+        const a = m;
+        inv[0] = a[5] * a[10] * a[15] - a[5] * a[11] * a[14] - a[9] * a[6] * a[15] + a[9] * a[7] * a[14] + a[13] * a[6] * a[11] - a[13] * a[7] * a[10];
+        inv[4] = -a[4] * a[10] * a[15] + a[4] * a[11] * a[14] + a[8] * a[6] * a[15] - a[8] * a[7] * a[14] - a[12] * a[6] * a[11] + a[12] * a[7] * a[10];
+        inv[8] = a[4] * a[9] * a[15] - a[4] * a[11] * a[13] - a[8] * a[5] * a[15] + a[8] * a[7] * a[13] + a[12] * a[5] * a[11] - a[12] * a[7] * a[9];
+        inv[12] = -a[4] * a[9] * a[14] + a[4] * a[10] * a[13] + a[8] * a[5] * a[14] - a[8] * a[6] * a[13] - a[12] * a[5] * a[10] + a[12] * a[6] * a[9];
+        inv[1] = -a[1] * a[10] * a[15] + a[1] * a[11] * a[14] + a[9] * a[2] * a[15] - a[9] * a[3] * a[14] - a[13] * a[2] * a[11] + a[13] * a[3] * a[10];
+        inv[5] = a[0] * a[10] * a[15] - a[0] * a[11] * a[14] - a[8] * a[2] * a[15] + a[8] * a[3] * a[14] + a[12] * a[2] * a[11] - a[12] * a[3] * a[10];
+        inv[9] = -a[0] * a[9] * a[15] + a[0] * a[11] * a[13] + a[8] * a[1] * a[15] - a[8] * a[3] * a[13] - a[12] * a[1] * a[11] + a[12] * a[3] * a[9];
+        inv[13] = a[0] * a[9] * a[14] - a[0] * a[10] * a[13] - a[8] * a[1] * a[14] + a[8] * a[2] * a[13] + a[12] * a[1] * a[10] - a[12] * a[2] * a[9];
+        inv[2] = a[1] * a[6] * a[15] - a[1] * a[7] * a[14] - a[5] * a[2] * a[15] + a[5] * a[3] * a[14] + a[13] * a[2] * a[7] - a[13] * a[3] * a[6];
+        inv[6] = -a[0] * a[6] * a[15] + a[0] * a[7] * a[14] + a[4] * a[2] * a[15] - a[4] * a[3] * a[14] - a[12] * a[2] * a[7] + a[12] * a[3] * a[6];
+        inv[10] = a[0] * a[5] * a[15] - a[0] * a[7] * a[13] - a[4] * a[1] * a[15] + a[4] * a[3] * a[13] + a[12] * a[1] * a[7] - a[12] * a[3] * a[5];
+        inv[14] = -a[0] * a[5] * a[14] + a[0] * a[6] * a[13] + a[4] * a[1] * a[14] - a[4] * a[2] * a[13] - a[12] * a[1] * a[6] + a[12] * a[2] * a[5];
+        inv[3] = -a[1] * a[6] * a[11] + a[1] * a[7] * a[10] + a[5] * a[2] * a[11] - a[5] * a[3] * a[10] - a[9] * a[2] * a[7] + a[9] * a[3] * a[6];
+        inv[7] = a[0] * a[6] * a[11] - a[0] * a[7] * a[10] - a[4] * a[2] * a[11] + a[4] * a[3] * a[10] + a[8] * a[2] * a[7] - a[8] * a[3] * a[6];
+        inv[11] = -a[0] * a[5] * a[11] + a[0] * a[7] * a[9] + a[4] * a[1] * a[11] - a[4] * a[3] * a[9] - a[8] * a[1] * a[7] + a[8] * a[3] * a[5];
+        inv[15] = a[0] * a[5] * a[10] - a[0] * a[6] * a[9] - a[4] * a[1] * a[10] + a[4] * a[2] * a[9] + a[8] * a[1] * a[6] - a[8] * a[2] * a[5];
+        let det = a[0] * inv[0] + a[1] * inv[4] + a[2] * inv[8] + a[3] * inv[12];
+        if (!det) return new Float32Array(16);
+        det = 1 / det;
+        for (let i = 0; i < 16; i++) inv[i] *= det;
+        return inv;
     }
 
     setImmersiveMode(enabled, mode = this.xrMode) {
