@@ -762,7 +762,7 @@ namespace JellTogether.Plugin.Services
             }
         }
 
-        public async Task<bool> UpdateDiscordStage(string roomId, string title, string? configuredBotToken = null, string? configuredStageId = null)
+        public async Task<(bool Success, string Error)> UpdateDiscordStage(string roomId, string title, string? configuredBotToken = null, string? configuredStageId = null)
         {
             string? botToken;
             string? stageId;
@@ -770,35 +770,58 @@ namespace JellTogether.Plugin.Services
             {
                 if (!_rooms.TryGetValue(roomId, out var room))
                 {
-                    return false;
+                    return (false, "Room not found.");
                 }
 
                 botToken = string.IsNullOrWhiteSpace(configuredBotToken) ? room.DiscordBotToken : configuredBotToken;
                 stageId = string.IsNullOrWhiteSpace(configuredStageId) ? room.DiscordStageId : configuredStageId;
             }
 
-            if (!string.IsNullOrWhiteSpace(botToken) && !string.IsNullOrWhiteSpace(stageId))
+            if (string.IsNullOrWhiteSpace(botToken))
             {
-                try
-                {
-                    var url = $"https://discord.com/api/v10/stage-instances/{TrimToLimit(stageId, 64)}";
-                    var payload = new { topic = TrimToLimit($"🍿 Watching: {title}", 120) };
-                    var json = JsonSerializer.Serialize(payload);
-
-                    var request = new HttpRequestMessage(new HttpMethod("PATCH"), url);
-                    request.Headers.Add("Authorization", $"Bot {TrimToLimit(botToken, 256)}");
-                    request.Content = new StringContent(json, Encoding.UTF8, "application/json");
-
-                    var response = await _httpClient.SendAsync(request);
-                    return response.IsSuccessStatusCode;
-                }
-                catch
-                {
-                    return false;
-                }
+                return (false, "Discord bot token is missing.");
             }
 
-            return false;
+            if (string.IsNullOrWhiteSpace(stageId))
+            {
+                return (false, "Discord Stage channel is missing.");
+            }
+
+            try
+            {
+                var url = $"https://discord.com/api/v10/stage-instances/{TrimToLimit(stageId, 64)}";
+                var payload = new { topic = TrimToLimit($"🍿 Watching: {title}", 120) };
+                var json = JsonSerializer.Serialize(payload);
+
+                var request = new HttpRequestMessage(new HttpMethod("PATCH"), url);
+                request.Headers.Add("Authorization", $"Bot {TrimToLimit(botToken, 256)}");
+                request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                using var response = await _httpClient.SendAsync(request);
+                if (response.IsSuccessStatusCode)
+                {
+                    return (true, string.Empty);
+                }
+
+                var responseText = await response.Content.ReadAsStringAsync();
+                var detail = string.IsNullOrWhiteSpace(responseText) ? string.Empty : $": {TrimToLimit(responseText, 240)}";
+                return (false, $"Discord API returned {(int)response.StatusCode}{detail}");
+            }
+            catch (Exception ex)
+            {
+            return (false, ex.Message);
+            }
+        }
+
+        public bool SetRoomDiscordStage(string roomId, string? stageId)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room)) return false;
+                room.DiscordStageId = TrimToLimit(stageId ?? string.Empty, 64);
+                Touch(room);
+                return true;
+            }
         }
 
         public async Task SyncMessageToDiscordStage(string roomId, ChatMessage message, string? configuredBotToken, string? configuredStageId, bool enabled)

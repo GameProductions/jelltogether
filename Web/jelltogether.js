@@ -2932,11 +2932,14 @@ class JellTogetherApp {
         if (!title || !title.trim()) return;
         try {
             const resp = await this.jsonPost(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/SyncStage`, { title: title.trim() });
-            if (!resp.ok) throw new Error("Discord sync failed");
+            if (!resp.ok) {
+                const detail = await resp.text().catch(() => "");
+                throw new Error(detail || `Discord sync failed with ${resp.status}`);
+            }
             this.showToast("Discord Stage synced.", 'success');
         } catch (e) {
             console.error("Discord Sync Error:", e);
-            this.showToast("Failed to sync Discord Stage. Check the global Discord settings.", 'error');
+            this.showToast(e?.message || "Failed to sync Discord Stage. Check the global Discord settings.", 'error');
         }
     }
 

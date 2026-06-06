@@ -681,6 +681,7 @@ namespace JellTogether.Plugin.Api
 
             var controllingSessionId = ControllerSessionId();
             var controllingUserId = ControllerUserGuid();
+            var startPositionTicks = StartPositionTicksFor(room, item);
             var attempts = new List<PlaybackStartAttempt>();
             foreach (var target in targets)
             {
@@ -690,6 +691,7 @@ namespace JellTogether.Plugin.Api
                 var playRequest = new PlayRequest
                 {
                     ItemIds = new[] { mediaId },
+                    StartPositionTicks = startPositionTicks,
                     PlayCommand = PlayCommand.PlayNow,
                     ControllingUserId = controllingUserId == Guid.Empty ? targetUserId : controllingUserId
                 };
@@ -722,6 +724,7 @@ namespace JellTogether.Plugin.Api
             if (failed.Count < targets.Count)
             {
                 _roomManager.MarkNowPlaying(roomId, item);
+                await TrySyncDiscordPlayback(roomId, item.Title, cancellationToken);
             }
 
             var result = new StartWatchPartyResult
@@ -1144,17 +1147,22 @@ namespace JellTogether.Plugin.Api
             if (!CanManage(room)) return Forbid();
 
             var config = Plugin.Instance?.Configuration;
+            var stageId = !string.IsNullOrWhiteSpace(config?.DiscordStageId)
+                ? config?.DiscordStageId
+                : room.DiscordStageId;
+            var botToken = EffectiveDiscordBotToken(config);
             var updated = await _roomManager.UpdateDiscordStage(
                 roomId,
                 title,
-                EffectiveDiscordBotToken(config),
-                config?.DiscordStageId);
-            if (updated && Plugin.Instance != null && config != null)
+                botToken,
+                stageId);
+            if (updated.Success && Plugin.Instance != null && config != null)
             {
+                _roomManager.SetRoomDiscordStage(roomId, stageId);
                 config.ActiveDiscordStageRoomId = roomId;
                 Plugin.Instance.SaveConfiguration(config);
             }
-            return updated ? Ok() : BadRequest("Discord Stage is not configured in global settings.");
+            return updated.Success ? Ok() : BadRequest(string.IsNullOrWhiteSpace(updated.Error) ? "Discord Stage sync failed." : updated.Error);
         }
 
         private bool CanView(JellTogetherRoom room)
@@ -1236,7 +1244,14 @@ namespace JellTogether.Plugin.Api
         private async Task PullDiscordStageChat(string roomId)
         {
             var config = Plugin.Instance?.Configuration;
-            if (!string.IsNullOrWhiteSpace(config?.DiscordStageId) &&
+            var configuredStageId = TrimToLimit(config?.DiscordStageId ?? string.Empty, 64);
+            var room = _roomManager.GetRoom(roomId);
+            var roomStageId = TrimToLimit(room?.DiscordStageId ?? string.Empty, 64);
+            var stageId = !string.IsNullOrWhiteSpace(configuredStageId) ? configuredStageId : roomStageId;
+            if (string.IsNullOrWhiteSpace(stageId)) return;
+
+            if (!string.IsNullOrWhiteSpace(configuredStageId) &&
+                !string.IsNullOrWhiteSpace(config?.ActiveDiscordStageRoomId) &&
                 !string.Equals(config.ActiveDiscordStageRoomId, roomId, StringComparison.OrdinalIgnoreCase))
             {
                 return;
@@ -1245,7 +1260,7 @@ namespace JellTogether.Plugin.Api
             await _roomManager.PullDiscordStageMessages(
                 roomId,
                 EffectiveDiscordBotToken(config),
-                config?.DiscordStageId,
+                stageId,
                 config?.EnableDiscordStageChatSync ?? true);
         }
 
@@ -1420,6 +1435,34 @@ namespace JellTogether.Plugin.Api
             if (session != null) return session.UserId;
             if (Guid.TryParse(CurrentUserId, out var userId)) return userId;
             return Guid.Empty;
+        }
+
+        private static long StartPositionTicksFor(JellTogetherRoom room, JellTogether.Plugin.Services.QueueItem item)
+        {
+            if (room.NowPlayingMediaId != item.MediaId || !room.NowPlayingStartedAt.HasValue) return 0;
+            var elapsed = DateTime.UtcNow - room.NowPlayingStartedAt.Value;
+            if (elapsed <= TimeSpan.Zero) return 0;
+            return elapsed.Ticks;
+        }
+
+        private async Task TrySyncDiscordPlayback(string roomId, string title, CancellationToken cancellationToken)
+        {
+            var config = Plugin.Instance?.Configuration;
+            if (config == null) return;
+            var stageId = !string.IsNullOrWhiteSpace(config.DiscordStageId) ? config.DiscordStageId : _roomManager.GetRoom(roomId)?.DiscordStageId;
+            if (string.IsNullOrWhiteSpace(stageId)) return;
+
+            var result = await _roomManager.UpdateDiscordStage(
+                roomId,
+                title,
+                EffectiveDiscordBotToken(config),
+                stageId);
+            if (result.Success && !string.IsNullOrWhiteSpace(stageId))
+            {
+                _roomManager.SetRoomDiscordStage(roomId, stageId);
+                config.ActiveDiscordStageRoomId = roomId;
+                Plugin.Instance?.SaveConfiguration(config);
+            }
         }
 
         private (QueueItemRequest Request, ActionResult? Error) ValidateQueueMedia(QueueItemRequest request)
