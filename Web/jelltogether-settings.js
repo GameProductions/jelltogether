@@ -4,6 +4,7 @@ class JellTogetherSettingsApp {
         this.libraries = [];
         this.discordStageChannels = [];
         this.discordStagePickerMode = 'manual';
+        this.discordStageId = '';
         this.init();
     }
 
@@ -67,6 +68,7 @@ class JellTogetherSettingsApp {
             document.getElementById('settings-persist-history').checked = this.settings.persistRoomHistory !== false;
             document.getElementById('settings-invite-hours').value = this.settings.defaultInviteExpirationHours ?? 24;
             document.getElementById('settings-discord-stage-id').value = this.settings.discordStageId || '';
+            this.discordStageId = this.settings.discordStageId || '';
             document.getElementById('settings-discord-chat-sync').checked = this.settings.enableDiscordStageChatSync !== false;
             document.getElementById('settings-discord-bot-token').value = '';
             document.getElementById('settings-discord-clear-token').checked = false;
@@ -212,6 +214,7 @@ class JellTogetherSettingsApp {
             .map(input => input.value)
             .filter(Boolean);
         const publicJellyfinUrl = document.getElementById('settings-public-jellyfin-url')?.value?.trim() || '';
+        const discordStageId = this.selectedDiscordStageId() || this.settings?.discordStageId || '';
         const payload = {
             publicJellyfinUrl,
             publicCompanionUrl: this.generatedCompanionUrl(),
@@ -222,7 +225,7 @@ class JellTogetherSettingsApp {
             allowAndroidTvPlaybackTargets: document.getElementById('settings-android-tv-targets')?.checked === true,
             persistRoomHistory: document.getElementById('settings-persist-history')?.checked === true,
             defaultInviteExpirationHours: parseInt(document.getElementById('settings-invite-hours')?.value || '24', 10),
-            discordStageId: this.selectedDiscordStageId(),
+            discordStageId,
             enableDiscordStageChatSync: document.getElementById('settings-discord-chat-sync')?.checked !== false,
             discordBotToken: this.isDiscordEnvironmentTokenActive() ? '' : (document.getElementById('settings-discord-bot-token')?.value?.trim() || ''),
             clearDiscordBotToken: this.isDiscordEnvironmentTokenActive() ? false : document.getElementById('settings-discord-clear-token')?.checked === true
@@ -240,11 +243,13 @@ class JellTogetherSettingsApp {
                 ...payload,
                 hasDiscordBotToken: this.isDiscordEnvironmentTokenActive() || (payload.clearDiscordBotToken ? false : Boolean(payload.discordBotToken || this.settings?.hasDiscordBotToken))
             };
+            this.discordStageId = discordStageId;
             document.getElementById('settings-discord-bot-token').value = '';
             document.getElementById('settings-discord-clear-token').checked = false;
             this.updateDiscordTokenStatus();
             this.updateDiscordTokenControls();
             await this.loadDiscordStageChannels();
+            await this.load();
             this.toast('JellTogether settings saved.', 'success');
         } catch (e) {
             console.error('JellTogether settings save failed:', e);
@@ -318,16 +323,21 @@ class JellTogetherSettingsApp {
             input.className = 'glass-input';
             input.placeholder = 'Discord stage channel ID';
             input.value = hidden.value || this.settings?.discordStageId || '';
-            input.addEventListener('input', () => hidden.value = input.value.trim());
+            input.addEventListener('input', () => {
+                hidden.value = input.value.trim();
+                this.discordStageId = hidden.value;
+                this.updateDiscordStageActionState();
+            });
             container.appendChild(input);
             container.appendChild(this.textEl('div', 'Save a bot token to search eligible Stage channels automatically.', 'settings-note'));
+            this.updateDiscordStageActionState();
             return;
         }
 
         this.discordStagePickerMode = 'search';
-        if (!hidden.value && this.settings?.discordStageId) hidden.value = this.settings.discordStageId;
+        if (this.settings?.discordStageId) hidden.value = this.settings.discordStageId;
 
-        const selected = this.discordStageChannels.find(channel => channel.id === hidden.value);
+        const selected = this.discordStageChannels.find(channel => channel.id === hidden.value) || null;
         const search = document.createElement('input');
         search.type = 'search';
         search.id = 'settings-discord-stage-picker';
@@ -346,6 +356,14 @@ class JellTogetherSettingsApp {
 
         const results = document.createElement('div');
         results.className = 'stage-channel-results';
+        const selectedPill = document.createElement('button');
+        selectedPill.type = 'button';
+        selectedPill.className = 'copy-pill stage-channel-pill';
+        selectedPill.textContent = selected ? `Selected: ${this.stageChannelLabel(selected)}` : 'No Stage channel selected';
+        selectedPill.title = 'The saved Discord Stage channel ID is stored here.';
+        selectedPill.onclick = () => {
+            if (selected) this.toast(`Selected ${this.stageChannelLabel(selected)}`, 'info');
+        };
 
         const renderResults = () => {
             const query = search.value.trim().toLowerCase();
@@ -368,7 +386,10 @@ class JellTogetherSettingsApp {
                 button.onclick = () => {
                     hidden.value = channel.id;
                     search.value = this.stageChannelLabel(channel);
+                    this.discordStageId = channel.id;
+                    selectedPill.textContent = `Selected: ${this.stageChannelLabel(channel)}`;
                     renderResults();
+                    this.updateDiscordStageActionState();
                 };
                 results.appendChild(button);
             });
@@ -378,10 +399,12 @@ class JellTogetherSettingsApp {
         search.addEventListener('focus', renderResults);
         container.appendChild(search);
         container.appendChild(actions);
+        container.appendChild(selectedPill);
         if (errorMessage) container.appendChild(this.textEl('div', errorMessage, 'settings-note'));
         container.appendChild(results);
         container.appendChild(this.manualStageIdDetails(hidden));
         renderResults();
+        this.updateDiscordStageActionState();
     }
 
     manualStageIdDetails(hidden) {
@@ -410,6 +433,12 @@ class JellTogetherSettingsApp {
         const picker = document.getElementById('settings-discord-stage-picker');
         if (this.discordStagePickerMode === 'manual') return picker?.value?.trim() || '';
         return hidden?.value?.trim() || '';
+    }
+
+    updateDiscordStageActionState() {
+        const stageId = (this.settings?.discordStageId || this.discordStageId || '').trim();
+        const testButton = document.getElementById('settings-test-discord-stage');
+        if (testButton) testButton.disabled = !stageId;
     }
 
     async testDiscordStage() {

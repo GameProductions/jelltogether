@@ -1422,6 +1422,12 @@ h1 {
     justify-content: flex-end;
 }
 
+.stage-channel-pill {
+    justify-content: flex-start;
+    width: 100%;
+    text-align: left;
+}
+
 .stage-channel-results {
     display: grid;
     gap: 8px;

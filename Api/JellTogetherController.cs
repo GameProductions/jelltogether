@@ -224,6 +224,8 @@ namespace JellTogether.Plugin.Api
                 allowAndroidTvPlaybackTargets = config?.AllowAndroidTvPlaybackTargets ?? true,
                 persistRoomHistory = config?.PersistRoomHistory ?? true,
                 defaultInviteExpirationHours = config?.DefaultInviteExpirationHours ?? 24,
+                discordStageId = config?.DiscordStageId ?? string.Empty,
+                hasDiscordBotToken = !string.IsNullOrWhiteSpace(EffectiveDiscordBotToken(config)),
                 pluginVersion = PluginVersion(),
                 changelog = ChangelogEntries(),
                 canSavePublicAccessSettings = IsElevatedUser()

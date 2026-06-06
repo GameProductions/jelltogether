@@ -3,6 +3,7 @@ class JellTogetherApp {
         this.serverUrl = this.initialServerUrl();
         this.publicJellyfinUrl = "";
         this.publicCompanionOrigin = "";
+        this.discordStageId = "";
         this.canSavePublicAccessSettings = false;
         this.enabledLibraryIds = [];
         this.allowQueueVotingByDefault = true;
@@ -125,6 +126,7 @@ class JellTogetherApp {
             this.enabledLibraryIds = settings.enabledLibraryIds || [];
             this.allowQueueVotingByDefault = settings.allowQueueVotingByDefault !== false;
             this.allowParticipantQueueAdds = settings.allowParticipantQueueAdds !== false;
+            this.discordStageId = settings.discordStageId || "";
             this.pluginVersion = settings.pluginVersion || this.pluginVersion;
             this.changelog = Array.isArray(settings.changelog) ? settings.changelog : [];
             this.canSavePublicAccessSettings = settings.canSavePublicAccessSettings === true;
@@ -142,6 +144,7 @@ class JellTogetherApp {
         this.updateCompanionPills();
         this.updateVersionLabels();
         this.updateServerIndicator();
+        this.updateDiscordStageActionState();
     }
 
     setupEventHandlers() {
@@ -2919,6 +2922,11 @@ class JellTogetherApp {
     }
 
     async syncDiscordStage(titleOverride = null) {
+        if (!this.discordStageId) {
+            this.showToast('Set a Discord Stage channel in global settings first.', 'error');
+            return;
+        }
+
         if (!titleOverride) {
             this.showModal('Sync Discord Stage', [
                 { id: 'title', label: 'Topic', placeholder: 'Watching...' }
@@ -2941,6 +2949,11 @@ class JellTogetherApp {
             console.error("Discord Sync Error:", e);
             this.showToast(e?.message || "Failed to sync Discord Stage. Check the global Discord settings.", 'error');
         }
+    }
+
+    updateDiscordStageActionState() {
+        const button = document.getElementById('btn-sync-discord-stage');
+        if (button) button.disabled = !this.discordStageId;
     }
 
     async sendMessage() {
