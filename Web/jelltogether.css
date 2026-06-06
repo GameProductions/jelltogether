@@ -1458,6 +1458,28 @@ h1 {
     font-weight: 800;
 }
 
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 7px;
+    border-radius: 999px;
+    font-size: 0.66rem;
+    font-weight: 800;
+    letter-spacing: 0;
+}
+
+.status-badge.is-ready {
+    color: #d8fff7;
+    background: rgba(94, 234, 212, 0.14);
+    border: 1px solid rgba(94, 234, 212, 0.34);
+}
+
+.status-badge.is-unavailable {
+    color: #ffe7f1;
+    background: rgba(255, 111, 177, 0.12);
+    border: 1px solid rgba(255, 111, 177, 0.28);
+}
+
 .participant-item.pending,
 .participant-item.banned {
     border-color: rgba(255, 77, 166, 0.22);

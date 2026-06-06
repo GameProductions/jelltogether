@@ -127,6 +127,8 @@ namespace JellTogether.Plugin.Services
         public string DisplayName { get; set; } = string.Empty;
         public string MediaUserId { get; set; } = string.Empty;
         public string ProfileImageUrl { get; set; } = string.Empty;
+        public bool PlaybackReady { get; set; }
+        public string PlaybackStatus { get; set; } = string.Empty;
     }
 
     public enum JoinRoomResult

@@ -3057,7 +3057,9 @@ class JellTogetherApp {
                 userId: this.currentUser,
                 displayName: this.currentUser,
                 mediaUserId: this.currentJellyfinMediaUserId || this.currentUser,
-                profileImageUrl: this.currentJellyfinProfileImageUrl || ''
+                profileImageUrl: this.currentJellyfinProfileImageUrl || '',
+                playbackReady: false,
+                playbackStatus: ''
             };
         }
         return null;
@@ -3102,12 +3104,18 @@ class JellTogetherApp {
         header.appendChild(this.participantAvatar(occupant.userId, 'seat-modal-avatar'));
         const copy = document.createElement('div');
         copy.className = 'seat-modal-copy';
+        const profile = this.participantProfile(occupant.userId);
         copy.appendChild(this.textEl('span', `Seat ${seatIndex + 1}`, 'eyebrow'));
         copy.appendChild(this.textEl('strong', occupant.displayName || occupant.userId, 'seat-modal-name'));
         if (occupant.displayName && occupant.displayName !== occupant.userId) {
             copy.appendChild(this.textEl('em', occupant.userId, 'seat-modal-id'));
         }
         copy.appendChild(this.textEl('span', occupant.role, `role-badge ${occupant.role === 'Host' ? 'role-owner' : occupant.role === 'Co-host' ? 'role-cohost' : ''}`));
+        if (profile?.playbackReady === true) {
+            copy.appendChild(this.textEl('span', 'Ready', 'status-badge is-ready'));
+        } else if (profile?.playbackStatus) {
+            copy.appendChild(this.textEl('span', profile.playbackStatus, 'status-badge is-unavailable'));
+        }
         header.appendChild(copy);
         modal.appendChild(header);
 
@@ -3869,6 +3877,9 @@ class JellTogetherApp {
             const perms = this.currentRoom.permissions?.[userId] || {};
             const badges = document.createElement('div');
             badges.className = 'participant-permission-badges';
+            const profile = this.participantProfile(userId);
+            if (profile?.playbackReady === true) badges.appendChild(this.textEl('span', 'Ready', 'status-badge is-ready'));
+            else if (profile?.playbackStatus) badges.appendChild(this.textEl('span', profile.playbackStatus, 'status-badge is-unavailable'));
             if (perms.canChat === false) badges.appendChild(this.textEl('span', 'Muted'));
             if (perms.canControlPlayback === false) badges.appendChild(this.textEl('span', 'No control'));
             if (perms.canAddToQueue === false) badges.appendChild(this.textEl('span', 'No queue'));

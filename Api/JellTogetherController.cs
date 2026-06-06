@@ -1373,6 +1373,10 @@ namespace JellTogether.Plugin.Api
 
         private Dictionary<string, ParticipantProfile> ParticipantProfilesForRoom(JellTogetherRoom room)
         {
+            var playbackTargets = PlaybackTargetsForRoom(room)
+                .GroupBy(target => target.MatchedParticipantId, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.OrderByDescending(target => target.CanStartPlayback).First(), StringComparer.OrdinalIgnoreCase);
+
             return room.Participants
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(
@@ -1389,12 +1393,16 @@ namespace JellTogether.Plugin.Api
                             ? $"/Users/{session.UserId:D}/Images/Primary?fillHeight=160&fillWidth=160&quality=90"
                             : string.Empty;
 
+                        playbackTargets.TryGetValue(participant, out var playbackTarget);
+
                         return new ParticipantProfile
                         {
                             UserId = participant,
                             DisplayName = session?.UserName ?? participant,
                             MediaUserId = session?.UserId.ToString("D") ?? (Guid.TryParse(participant, out var participantGuid) ? participantGuid.ToString("D") : string.Empty),
-                            ProfileImageUrl = profileImageUrl
+                            ProfileImageUrl = profileImageUrl,
+                            PlaybackReady = playbackTarget?.CanStartPlayback == true,
+                            PlaybackStatus = playbackTarget?.EligibilityReason ?? string.Empty
                         };
                     },
                     StringComparer.OrdinalIgnoreCase);
