@@ -7,7 +7,7 @@ class JellTogetherApp {
         this.enabledLibraryIds = [];
         this.allowQueueVotingByDefault = true;
         this.allowParticipantQueueAdds = true;
-        this.pluginVersion = "1.4.3.1";
+        this.pluginVersion = "1.4.3.2";
         this.changelog = [];
         this.currentRoom = null;
         this.currentUser = "Unknown";
@@ -3279,6 +3279,21 @@ class JellTogetherApp {
         if (syncBtn) syncBtn.disabled = !stageId;
     }
 
+    stageChannelLabel(channel) {
+        return channel?.label || `${channel?.guildName || 'Discord server'} / ${channel?.name || 'Stage channel'}`;
+    }
+
+    normalizeDiscordStageChannel(channel) {
+        const normalized = {
+            id: String(this.discordProp(channel, 'id', '') || ''),
+            name: this.discordProp(channel, 'name', 'Stage channel') || 'Stage channel',
+            guildId: String(this.discordProp(channel, 'guildId', '') || ''),
+            guildName: this.discordProp(channel, 'guildName', 'Discord server') || 'Discord server'
+        };
+        normalized.label = this.discordProp(channel, 'label', `${normalized.guildName} / ${normalized.name}`);
+        return normalized;
+    }
+
     async showRoomDiscordStageModal() {
         if (!this.currentRoom?.id) return;
         this.hideModal();
@@ -3307,6 +3322,13 @@ class JellTogetherApp {
             modal.appendChild(this.textEl('p', 'Could not load eligible Stage channels. Check the bot token and permissions.', 'modal-subtitle'));
             modal.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
         }
+    }
+
+    discordProp(source, camelName, fallback = '') {
+        if (!source || typeof source !== 'object') return fallback;
+        if (source[camelName] !== undefined) return source[camelName];
+        const pascalName = `${camelName.charAt(0).toUpperCase()}${camelName.slice(1)}`;
+        return source[pascalName] !== undefined ? source[pascalName] : fallback;
     }
 
     renderRoomDiscordStageModal(modal, channels) {
