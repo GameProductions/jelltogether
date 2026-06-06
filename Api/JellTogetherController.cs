@@ -528,6 +528,7 @@ namespace JellTogether.Plugin.Api
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
             if (!CanView(room)) return Forbid();
+            await SyncRoomPlaybackFromSessions(roomId);
             await PullDiscordStageChat(roomId);
             room = _roomManager.GetRoom(roomId) ?? room;
             return Ok(RoomForUser(room));
@@ -741,6 +742,51 @@ namespace JellTogether.Plugin.Api
             return Ok(CanManage(room) ? result : RedactPlaybackDiagnostics(result));
         }
 
+        [HttpPost("Rooms/{roomId}/Playback/SyncFromSession")]
+        public async Task<ActionResult<StartWatchPartyResult>> SyncPlaybackFromSession(string roomId, CancellationToken cancellationToken)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return NotFound();
+            if (!CanControlPlayback(room)) return Forbid();
+
+            var sessionState = DetectRoomPlaybackSession(room);
+            if (sessionState == null) return BadRequest("No active Jellyfin playback session was detected for this room.");
+
+            _roomManager.SetRoomPlaybackState(roomId, sessionState.Title, sessionState.MediaId, sessionState.StartedAtUtc);
+
+            var item = new JellTogether.Plugin.Services.QueueItem
+            {
+                Title = sessionState.Title,
+                MediaId = sessionState.MediaId,
+                LibraryId = sessionState.LibraryId,
+                MediaType = sessionState.MediaType,
+                Overview = sessionState.Overview
+            };
+
+            var availableTargets = PlaybackTargetsForRoom(room);
+            var managedSessionIds = _roomManager.GetActivePlaybackSessionIds(roomId);
+            var targets = availableTargets
+                .Where(target => managedSessionIds.Count == 0 || managedSessionIds.Contains(target.SessionId, StringComparer.OrdinalIgnoreCase))
+                .Where(target => target.CanStartPlayback)
+                .ToList();
+
+            if (targets.Count == 0)
+            {
+                var noTargetsResult = new StartWatchPartyResult
+                {
+                    Title = sessionState.Title,
+                    EligibleCount = 0,
+                    StartedCount = 0,
+                    AvailableTargets = availableTargets
+                };
+                return BadRequest(CanManage(room) ? noTargetsResult : RedactPlaybackDiagnostics(noTargetsResult));
+            }
+
+            var result = await SendPlaybackToTargets(room, item, targets, cancellationToken);
+            result.AvailableTargets = availableTargets;
+            return Ok(CanManage(room) ? result : RedactPlaybackDiagnostics(result));
+        }
+
         [HttpPost("Rooms/{roomId}/PlaybackDevices")]
         public async Task<ActionResult<StartWatchPartyResult>> AddPlaybackDevice(string roomId, [FromBody] PlaybackDeviceRequest request, CancellationToken cancellationToken)
         {
@@ -921,6 +967,7 @@ namespace JellTogether.Plugin.Api
             var room = _roomManager.GetRoom(roomId);
             if (room == null) return NotFound();
             if (!CanView(room)) return Forbid();
+            await SyncRoomPlaybackFromSessions(roomId);
             await PullDiscordStageChat(roomId);
             room = _roomManager.GetRoom(roomId) ?? room;
             
@@ -1488,6 +1535,129 @@ namespace JellTogether.Plugin.Api
             var elapsed = DateTime.UtcNow - room.NowPlayingStartedAt.Value;
             if (elapsed <= TimeSpan.Zero) return 0;
             return elapsed.Ticks;
+        }
+
+        private async Task SyncRoomPlaybackFromSessions(string roomId)
+        {
+            var room = _roomManager.GetRoom(roomId);
+            if (room == null) return;
+            var sessionState = DetectRoomPlaybackSession(room);
+            if (sessionState == null) return;
+            _roomManager.SetRoomPlaybackState(roomId, sessionState.Title, sessionState.MediaId, sessionState.StartedAtUtc);
+            await Task.CompletedTask;
+        }
+
+        private PlaybackSessionState? DetectRoomPlaybackSession(JellTogetherRoom room)
+        {
+            var activeSessions = _sessionManager.Sessions
+                .Where(session => session.IsActive)
+                .Select(session => new { Session = session, Match = RoomParticipantSessionMatch(session, room) })
+                .Where(candidate => candidate.Match != null)
+                .ToList();
+
+            foreach (var candidate in activeSessions.OrderByDescending(candidate => GetPlaybackPositionTicks(candidate.Session) > 0))
+            {
+                var session = candidate.Session;
+                var mediaId = GetSessionNowPlayingMediaId(session);
+                if (string.IsNullOrWhiteSpace(mediaId)) continue;
+
+                var title = GetSessionNowPlayingTitle(session);
+                if (string.IsNullOrWhiteSpace(title)) title = room.NowPlayingTitle;
+                if (string.IsNullOrWhiteSpace(title)) title = "Jellyfin playback";
+
+                return new PlaybackSessionState
+                {
+                    Title = title,
+                    MediaId = mediaId,
+                    LibraryId = GetSessionNowPlayingLibraryId(session),
+                    MediaType = GetSessionNowPlayingType(session),
+                    Overview = GetSessionNowPlayingOverview(session),
+                    StartedAtUtc = GetSessionStartedAt(session)
+                };
+            }
+
+            return null;
+        }
+
+        private static long GetPlaybackPositionTicks(SessionInfo session)
+        {
+            var playState = GetReflectionObject(session, "PlayState");
+            return GetReflectionNumber(playState, "PositionTicks");
+        }
+
+        private static DateTime? GetSessionStartedAt(SessionInfo session)
+        {
+            var ticks = GetPlaybackPositionTicks(session);
+            if (ticks <= 0) return null;
+            return DateTime.UtcNow.Subtract(TimeSpan.FromTicks(ticks));
+        }
+
+        private static string GetSessionNowPlayingMediaId(SessionInfo session)
+        {
+            var item = GetSessionNowPlayingItem(session);
+            return GetReflectionString(item, "Id") ?? GetReflectionString(item, "ItemId") ?? string.Empty;
+        }
+
+        private static string GetSessionNowPlayingTitle(SessionInfo session)
+        {
+            var item = GetSessionNowPlayingItem(session);
+            return GetReflectionString(item, "Name") ?? GetReflectionString(item, "Title") ?? string.Empty;
+        }
+
+        private static string GetSessionNowPlayingLibraryId(SessionInfo session)
+        {
+            var item = GetSessionNowPlayingItem(session);
+            return GetReflectionString(item, "ParentId") ?? GetReflectionString(item, "ParentIdString") ?? string.Empty;
+        }
+
+        private static string GetSessionNowPlayingType(SessionInfo session)
+        {
+            var item = GetSessionNowPlayingItem(session);
+            return GetReflectionString(item, "Type") ?? GetReflectionString(item, "MediaType") ?? string.Empty;
+        }
+
+        private static string GetSessionNowPlayingOverview(SessionInfo session)
+        {
+            var item = GetSessionNowPlayingItem(session);
+            return GetReflectionString(item, "Overview") ?? GetReflectionString(item, "ShortOverview") ?? string.Empty;
+        }
+
+        private static object? GetSessionNowPlayingItem(SessionInfo session)
+        {
+            return GetReflectionObject(session, "NowPlayingItem") ?? GetReflectionObject(session, "NowPlayingItemDetails");
+        }
+
+        private static object? GetReflectionObject(object? source, string propertyName)
+        {
+            if (source == null) return null;
+            var property = source.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
+            return property?.GetValue(source);
+        }
+
+        private static string? GetReflectionString(object? source, string propertyName)
+        {
+            return GetReflectionObject(source, propertyName)?.ToString();
+        }
+
+        private static long GetReflectionNumber(object? source, string propertyName)
+        {
+            var value = GetReflectionObject(source, propertyName);
+            return value switch
+            {
+                long l => l,
+                int i => i,
+                _ => long.TryParse(value?.ToString(), out var parsed) ? parsed : 0
+            };
+        }
+
+        private sealed class PlaybackSessionState
+        {
+            public string Title { get; set; } = string.Empty;
+            public string MediaId { get; set; } = string.Empty;
+            public string LibraryId { get; set; } = string.Empty;
+            public string MediaType { get; set; } = string.Empty;
+            public string Overview { get; set; } = string.Empty;
+            public DateTime? StartedAtUtc { get; set; }
         }
 
         private async Task<StartWatchPartyResult> SendPlaybackToTargets(JellTogetherRoom room, JellTogether.Plugin.Services.QueueItem item, List<PlaybackTargetDto> targets, CancellationToken cancellationToken)

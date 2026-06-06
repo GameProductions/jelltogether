@@ -7,7 +7,7 @@ class JellTogetherApp {
         this.enabledLibraryIds = [];
         this.allowQueueVotingByDefault = true;
         this.allowParticipantQueueAdds = true;
-        this.pluginVersion = "1.4.3.6";
+        this.pluginVersion = "1.4.3.7";
         this.changelog = [];
         this.currentRoom = null;
         this.currentUser = "Unknown";
@@ -2051,13 +2051,15 @@ class JellTogetherApp {
         const targetCard = document.createElement('section');
         targetCard.className = 'theater-control-card';
         targetCard.appendChild(this.textEl('strong', 'Playback Targets'));
-        targetCard.appendChild(this.textEl('span', 'Check which room devices can be started remotely.'));
+        targetCard.appendChild(this.textEl('span', 'Check which room devices can be started remotely or sync the room to whatever is already playing.'));
         targetCard.appendChild(this.button('View Targets', 'secondary-command', () => this.showPlaybackTargetsModal()));
+        targetCard.appendChild(this.button('Sync From Jellyfin', 'micro-command', () => this.syncRoomPlaybackFromSession()));
         grid.appendChild(targetCard);
 
         modal.appendChild(grid);
         const actionRow = document.createElement('div');
         actionRow.className = 'split-actions';
+        actionRow.appendChild(this.button('Sync From Jellyfin', 'secondary-command', () => this.syncRoomPlaybackFromSession()));
         actionRow.appendChild(this.button('Close', 'secondary-command', () => this.hideModal()));
         modal.appendChild(actionRow);
         overlay.onclick = (event) => { if (event.target === overlay) this.hideModal(); };
@@ -2239,6 +2241,7 @@ class JellTogetherApp {
 
         const actionRow = document.createElement('div');
         actionRow.className = 'split-actions';
+        actionRow.appendChild(this.button('Sync From Jellyfin', 'secondary-command', () => this.syncRoomPlaybackFromSession()));
         const startButton = this.button('Start', 'primary-command', () => {
             const selected = this.selectedPlaybackTargets(targetList);
             this.hideModal();
@@ -3477,6 +3480,27 @@ class JellTogetherApp {
         } catch (e) {
             console.error('Playback resync failed:', e);
             this.showToast(e?.message || 'Unable to resync playback.', 'error');
+        }
+    }
+
+    async syncRoomPlaybackFromSession() {
+        if (!this.currentRoom) return;
+        if (!this.canControlPlayback()) {
+            this.showToast("Only hosts or playback-enabled participants can sync the room.", 'error');
+            return;
+        }
+
+        try {
+            const resp = await this.request(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Playback/SyncFromSession`, { method: 'POST' });
+            if (!resp.ok) {
+                const detail = await resp.text().catch(() => '');
+                throw new Error(detail || `Room sync failed with ${resp.status}`);
+            }
+            await this.refreshRoom();
+            this.showToast('Room synced to the active Jellyfin session.', 'success');
+        } catch (e) {
+            console.error('Room sync from session failed:', e);
+            this.showToast(e?.message || 'Unable to sync the room to current Jellyfin playback.', 'error');
         }
     }
 

@@ -1080,6 +1080,18 @@ namespace JellTogether.Plugin.Services
             }
         }
 
+        public void SetRoomPlaybackState(string roomId, string title, string mediaId, DateTime? startedAtUtc)
+        {
+            lock (_roomLock)
+            {
+                if (!_rooms.TryGetValue(roomId, out var room)) return;
+                room.NowPlayingTitle = TrimToLimit(title, 256);
+                room.NowPlayingMediaId = TrimToLimit(mediaId, 64);
+                room.NowPlayingStartedAt = startedAtUtc;
+                Touch(room);
+            }
+        }
+
         public bool SetActivePlaybackSession(string roomId, string sessionId, bool active)
         {
             lock (_roomLock)
