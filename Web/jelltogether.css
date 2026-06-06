@@ -2838,8 +2838,23 @@ body.theme-scifi {
 }
 
 @media (max-width: 760px) {
+    body,
+    .jelltogether-page {
+        height: auto;
+        min-height: 100dvh;
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    .app-container {
+        height: auto;
+        min-height: 100dvh;
+        overflow: visible;
+    }
+
     .main-content {
         padding: 18px;
+        overflow: visible;
     }
 
     .hero-panel,
@@ -2908,16 +2923,16 @@ body.theme-scifi {
     }
 
     .sidebar {
-        position: sticky;
-        bottom: 0;
-        max-height: 56vh;
-        overflow: auto;
+        position: relative;
+        bottom: auto;
+        max-height: none;
+        overflow: visible;
         z-index: 18;
     }
 
     body.room-management-floating .sidebar {
-        position: sticky;
-        bottom: 0;
+        position: relative;
+        bottom: auto;
     }
 
     body.room-management-floating #room-management {

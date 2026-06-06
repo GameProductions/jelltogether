@@ -779,7 +779,7 @@ namespace JellTogether.Plugin.Api
                     StartedCount = 0,
                     AvailableTargets = availableTargets
                 };
-                return BadRequest(CanManage(room) ? noTargetsResult : RedactPlaybackDiagnostics(noTargetsResult));
+                return Ok(CanManage(room) ? noTargetsResult : RedactPlaybackDiagnostics(noTargetsResult));
             }
 
             var result = await SendPlaybackToTargets(room, item, targets, cancellationToken);

@@ -3492,12 +3492,23 @@ class JellTogetherApp {
 
         try {
             const resp = await this.request(`/jelltogether/Rooms/${encodeURIComponent(this.currentRoom.id)}/Playback/SyncFromSession`, { method: 'POST' });
+            const text = await resp.clone().text().catch(() => '');
+            let payload = null;
+            try {
+                payload = text ? JSON.parse(text) : null;
+            } catch {
+                payload = null;
+            }
             if (!resp.ok) {
-                const detail = await resp.text().catch(() => '');
-                throw new Error(detail || `Room sync failed with ${resp.status}`);
+                const detail = payload ? JSON.stringify(payload) : '';
+                throw new Error(detail || text || `Room sync failed with ${resp.status}`);
             }
             await this.refreshRoom();
-            this.showToast('Room synced to the active Jellyfin session.', 'success');
+            if (payload && payload.EligibleCount === 0) {
+                this.showToast('Room synced to the active Jellyfin session, but no controllable playback devices were available.', 'info');
+            } else {
+                this.showToast('Room synced to the active Jellyfin session.', 'success');
+            }
         } catch (e) {
             console.error('Room sync from session failed:', e);
             this.showToast(e?.message || 'Unable to sync the room to current Jellyfin playback.', 'error');

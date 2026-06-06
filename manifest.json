@@ -9,12 +9,12 @@
     "category": "Social",
     "versions": [
       {
-        "version": "1.4.3.7",
+        "version": "1.4.3.8",
         "changelog": "Full-stack security and stability hardening.\n\n- Moved standalone companion Jellyfin access tokens from persistent local storage into server-scoped session storage and removed broad localStorage token discovery.\n- Replaced dynamic HTML injection with safe DOM construction in companion status, diagnostics, and troubleshooting UI.\n- Changed immersive headset support to a safe theater-mode fallback until a full WebXR render layer is available.\n- Added atomic room persistence with backup recovery so corrupted room storage no longer clears all rooms.\n- Added server-side Jellyfin media and library validation before queueing or starting playback.\n- Tightened participant-created invites so only room participants can create them and non-host invites cannot grant playback control.\n- Scoped Discord Stage chat sync to the active synced party room and added bounded Discord HTTP timeouts.\n- Added standalone companion security headers and stricter forwarded-proto handling.\n- Removed shell execution from the release helper.\n- Bumped the package version so Jellyfin refreshes the repository entry, release asset URL, and checksum.",
         "targetAbi": "10.11.8.0",
-        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.4.3.7/jelltogether_1.4.3.7.zip",
-        "checksum": "0ACA06F20A403E49BD087FE270C34EC8",
-        "timestamp": "2026-06-06T05:29:04Z"
+        "sourceUrl": "https://github.com/GameProductions/jelltogether/releases/download/v1.4.3.8/jelltogether_1.4.3.8.zip",
+        "checksum": "9B237BF0DFA083B7AC8EE91068AC71C5",
+        "timestamp": "2026-06-06T05:46:40Z"
       },
       {
         "version": "1.4.3.0",
